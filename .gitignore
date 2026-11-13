@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.streamlit/secrets.toml
+
+# Data: never commit real judicial data, processed outputs or pseudonymization keys.
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/annotations/*
+!data/annotations/.gitkeep
+!data/annotations/README.md
+data/.salt
+models/*
+!models/.gitkeep
+runs/*
+!runs/.gitkeep
+*.duckdb
+*.duckdb.wal

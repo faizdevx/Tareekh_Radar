@@ -1,0 +1,29 @@
+# TEMPLATE - DAKSH hearing-level data. NOT verified against real DAKSH files.
+# DAKSH's public data dictionary (https://www.dakshindia.org/data-dictionary/) describes
+# fields such as "Case Number", "Date Filed", "Hearing Date", "Purpose", "Last Order",
+# "Court Name", but does not publish exact column headers. After obtaining the files,
+# replace every right-hand value with the real column header, then run:
+#   python -m tareekh_radar.cli process --cases <cases file> --hearings <hearings file> --mapping <this file>
+# Loading fails loudly if a mapped column does not exist - nothing is guessed.
+dataset:
+  name: daksh_hc
+  is_synthetic: false
+  level: hearing
+  source: "DAKSH High Court data (case + hearing level)"
+  license: "Confirm with DAKSH in writing (reported as CC BY-NC 4.0)"
+  geographic_scope: "<fill in: High Court(s) and years>"
+  access_notes: "Obtained via DAKSH data request on <date>."
+cases:
+  case_id: "<Case Number column>"
+  court_id: "<Court/Bench column>"
+  court_name: "<Court Name column>"
+  case_type: "<Case Type column>"
+  filing_date: "<Date Filed column>"
+  disposal_date: "<Disposal/Decision Date column>"
+  case_status: "<Current Status column>"
+hearings:
+  case_id: "<Case Number column>"
+  hearing_date: "<Hearing Date column>"
+  hearing_stage: "<Current Stage / Purpose column>"
+  last_order: "<Last Order column>"
+  next_hearing_purpose: "<Next Listing Purpose column>"

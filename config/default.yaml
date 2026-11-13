@@ -1,0 +1,257 @@
+# Tareekh Radar - default configuration.
+# Every analytical threshold lives here. Change values here (or in a copy passed
+# with --config) rather than editing code. The config hash is stored with every
+# run so results remain traceable to the settings that produced them.
+
+paths:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  annotations_dir: data/annotations
+  models_dir: models
+  runs_dir: runs
+  salt_file: data/.salt
+
+privacy:
+  # Replace case/hearing identifiers with keyed hashes (HMAC-SHA256) in outputs.
+  pseudonymize: true
+  # Salt is read from this env var first, then from paths.salt_file (auto-created).
+  salt_env_var: TAREEKH_SALT
+  pseudonym_prefix: "C-"
+  pseudonym_length: 10
+  # Columns outside the data contract are dropped on load (they may hold party names).
+  drop_unmapped_columns: true
+
+dates:
+  # Indian court records are predominantly day-first. Formats are tried in order.
+  formats:
+    - "%d-%m-%Y"
+    - "%d/%m/%Y"
+    - "%d.%m.%Y"
+    - "%Y-%m-%d"
+    - "%Y/%m/%d"
+    - "%d-%b-%Y"
+    - "%d %b %Y"
+    - "%d %B %Y"
+    - "%d-%m-%y"
+    - "%d/%m/%y"
+    - "%Y-%m-%d %H:%M:%S"
+  min_valid_date: "1950-01-01"
+  # Dates after this are invalid. null = the date the pipeline runs.
+  max_valid_date: null
+
+cleaning:
+  # Hearings with identical (case_id, hearing_date, normalized text) are duplicates.
+  duplicate_keys: [case_id, hearing_date, event_text_norm]
+
+# Case types are normalised orthographically only ("O.S." == "os"). Optional semantic
+# aliases can be added here, but abbreviations differ between states ("CC", "SC"), so
+# only add them for a single-state dataset after checking the state's case-type list.
+case_type_aliases: {}
+
+stage_patterns:
+  # First matching canonical stage wins. Patterns are regexes on lower-cased text.
+  ADMISSION: ["admission", "registration", "scrutiny", "fresh"]
+  NOTICE_SERVICE: ["notice", "summons", "service", "warrant", "nbw", "process"]
+  APPEARANCE: ["app?e+a?re?a?n[cs]e", "for appear", "production", "accused appear"]
+  PLEADINGS: ["written statement", "\\bw\\.?s\\b", "reply", "counter", "objection", "rejoinder", "pleading"]
+  FRAMING: ["framing of (charge|issue)", "charges? fram", "issues? fram", "\\bcharge\\b"]
+  EVIDENCE: ["evidence", "\\b(pw|dw|cw)\\b", "examination", "deposition", "witness"]
+  STATEMENT_OF_ACCUSED: ["313", "statement of accused"]
+  ARGUMENTS: ["argument", "hearing on merit", "final hearing"]
+  JUDGMENT: ["judgment", "judgement", "order reserved", "pronounce", "orders?$", "for orders"]
+  EXECUTION: ["execution", "attachment", "sale proclamation"]
+  INTERIM_APPLICATION: ["interim", "\\bi\\.?a\\b", "injunction", "stay"]
+  MISC: ["misc", "compliance", "copy", "settlement", "mediation", "lok adalat", "conciliation"]
+
+classification:
+  categories: [ADJOURNMENT, PROCEDURAL_PROGRESS, SUBSTANTIVE_PROGRESS, UNKNOWN]
+  # Fields describing what happened at the hearing. next_hearing_purpose describes the
+  # NEXT listing, so it is deliberately NOT used to classify the current event.
+  text_fields: [last_action, last_order]
+  # Rules with confidence below this threshold do not decide the class on their own.
+  rule_min_confidence: 0.6
+  # Words that negate a progress rule when they appear in or just before a match.
+  negation_pattern: "\\b(not|no|non|nor|without|neither|un-?)\\b"
+  # Characters before a match that are checked for a negation cue (the match itself is
+  # always checked). Kept small so "notice not served. fresh notice issued" still matches.
+  negation_window_chars: 8
+  # ML predictions below this max-probability remain UNKNOWN.
+  ml_min_probability: 0.65
+  # rules | ml | hybrid. hybrid: rules decide; ML only fills rule-UNKNOWN when confident
+  # and the description is non-empty. Missing text is never classified by ML.
+  mode: hybrid
+  ml:
+    ngram_range: [1, 2]
+    min_df: 1
+    max_features: 20000
+    C: 2.0
+    class_weight: balanced
+    max_iter: 2000
+    random_state: 42
+    test_size: 0.25
+    # Hold-out split grouping: "case_id" keeps a case's hearings on one side;
+    # "text" keeps identical descriptions on one side (stricter, tests generalisation).
+    group_by: text
+  rules:
+    # priority: higher wins when categories conflict. Equal-priority conflicts -> UNKNOWN.
+    - id: disposal
+      category: SUBSTANTIVE_PROGRESS
+      priority: 100
+      confidence: 0.95
+      negatable: true
+      patterns: ["\\b(disposed|decreed|dismissed|acquitted|convicted|withdrawn|compromised|abated|judgment (pronounced|delivered)|suit (decreed|dismissed)|case closed)\\b"]
+    - id: evidence_recorded
+      category: SUBSTANTIVE_PROGRESS
+      priority: 80
+      confidence: 0.9
+      negatable: true
+      patterns:
+        - "\\b(evidence|deposition|statement)\\b.{0,25}\\b(recorded|closed|concluded|taken)\\b"
+        - "\\b(pw|dw|cw)[- ]?\\d*\\b.{0,30}\\b(examined|cross[- ]?examined|discharged)\\b"
+        - "\\b(examination[- ]in[- ]chief|cross[- ]examination)\\b.{0,20}\\b(done|completed|concluded|recorded)\\b"
+    - id: arguments_heard
+      category: SUBSTANTIVE_PROGRESS
+      priority: 80
+      confidence: 0.9
+      negatable: true
+      patterns: ["\\barguments?\\b.{0,20}\\b(heard|concluded|advanced|completed|closed)\\b", "\\bheard (both|the) (sides|parties|counsel)\\b"]
+    - id: judicial_order
+      category: SUBSTANTIVE_PROGRESS
+      priority: 80
+      confidence: 0.85
+      negatable: true
+      patterns:
+        - "\\b(charges?|issues?)\\b.{0,15}\\b(framed|settled)\\b"
+        - "\\b(interim|final) order\\b.{0,15}\\b(passed|granted|issued)\\b"
+        - "\\bbail\\b.{0,15}\\b(granted|rejected|refused|allowed|cancelled)\\b"
+        - "\\b(application|petition|i\\.?a\\.?)\\b.{0,25}\\b(allowed|rejected|disposed)\\b"
+        - "\\border(s)? (passed|pronounced)\\b"
+        - "\\b313\\b.{0,25}\\b(recorded|examined)\\b"
+    - id: procedural_action
+      category: PROCEDURAL_PROGRESS
+      priority: 60
+      confidence: 0.85
+      negatable: true
+      patterns:
+        - "\\b(notice|summons|nbw|bw|warrant|process)e?s?\\b.{0,20}\\b(issued|served|executed|ordered)\\b"
+        - "\\b(written statement|reply|counter|rejoinder|objection|affidavit|vakalat(nama)?|documents?|charge ?sheet|memo|list of witnesses|process fee)\\b.{0,20}\\b(filed|submitted|produced|received|placed)\\b"
+        - "\\b(filed|submitted)\\b.{0,20}\\b(written statement|reply|counter|affidavit|documents?|vakalat(nama)?)\\b"
+        - "\\b(accused|respondent|defendant|plaintiff|petitioner|party|parties)\\b.{0,15}\\b(appeared|present|produced)\\b"
+        - "\\b(copies|copy)\\b.{0,15}\\b(supplied|furnished)\\b"
+        - "\\bcase (registered|admitted)\\b|\\badmitted\\b"
+        - "\\b(referred|sent) to (mediation|lok adalat)\\b"
+    - id: adjournment_court_side
+      category: ADJOURNMENT
+      priority: 50
+      confidence: 0.9
+      subtype: court_unavailable
+      patterns:
+        - "\\b(presiding officer|p\\.?o\\.?|judge|court)\\b.{0,15}\\b(on leave|is on leave|vacant|not available|on training|holiday)\\b"
+        - "\\bnot taken up\\b|\\bnot reached\\b|\\bpaucity of time\\b|\\bdue to (heavy|over) board\\b"
+    - id: adjournment_bar_side
+      category: ADJOURNMENT
+      priority: 50
+      confidence: 0.9
+      subtype: counsel_unavailable
+      patterns:
+        - "\\b(counsel|advocates?|lawyers?)\\b.{0,20}\\b(absent|not available|busy|abstain|abstained|on strike|engaged)\\b"
+        - "\\b(bar|lawyers'?|advocates'?) (strike|abstention|boycott)\\b"
+    - id: adjournment_party_request
+      category: ADJOURNMENT
+      priority: 50
+      confidence: 0.9
+      subtype: party_request
+      patterns:
+        - "\\b(time|accommodation|adjournment)\\b.{0,15}\\b(sought|prayed|requested|granted|allowed)\\b"
+        - "\\b(at the )?request of\\b.{0,25}\\b(counsel|party|plaintiff|defendant|accused|complainant|petitioner|respondent)\\b"
+    - id: adjournment_explicit
+      category: ADJOURNMENT
+      priority: 50
+      confidence: 0.85
+      subtype: unspecified
+      patterns: ["\\badjourn(ed|ment)?\\b", "\\bpostpone(d|ment)?\\b", "\\bdeferr?(ed|ment)?\\b", "\\b(stand|stood|stands) over\\b", "\\bresched(ul)?ed\\b", "\\bpassed over\\b"]
+    - id: listing_only
+      # A bare "put up for X on date" records a next date but not why nothing else
+      # happened. Confidence is below rule_min_confidence, so it stays UNKNOWN by default.
+      category: ADJOURNMENT
+      priority: 40
+      confidence: 0.5
+      subtype: listing_only
+      patterns: ["\\b(put up|listed|call(ed)? on|to come up|next date)\\b"]
+
+features:
+  # Rates/streaks need at least this many dated hearings to be computed.
+  min_hearings_for_rates: 3
+  # Intervals need at least this many dated hearings (=> min_hearings-1 intervals).
+  min_hearings_for_intervals: 2
+  # Case is "eligible" for anomaly scoring when it has enough dated hearings and
+  # the unknown-event share is at most this value.
+  max_unknown_share_for_eligibility: 0.6
+  # "As of" date for open cases. null = latest valid hearing date in the dataset.
+  reference_date: null
+  filing_cohort_years: 1
+  # Case-level mode: a pending case's "days since last listing" is measured to this date.
+  # null = latest listing/decision date observed in the dataset (data snapshot date proxy).
+  case_reference_date: null
+
+anomaly:
+  # Two analysis modes, chosen automatically from the data:
+  #   hearing: the source has per-hearing records (e.g. DAKSH hearing-level data)
+  #   case:    the source has one row per case with listing dates (e.g. DDL eCourts 2010-2018)
+  # Features are scored one-sidedly: only HIGH values are unusual.
+  # floor = minimum spread used for robust z (prevents division by ~0 when peers are
+  # near-identical). min_abs = minimum raw value before a feature can contribute to a flag.
+  modes:
+    hearing:
+      features:
+        adjournment_rate: { floor: 0.05, min_abs: 0.3 }
+        max_non_progress_streak: { floor: 1.0, min_abs: 4 }
+        repeated_stage_count: { floor: 1.0, min_abs: 3 }
+        days_since_last_substantive: { floor: 60.0, min_abs: 365 }
+        max_hearing_gap: { floor: 30.0, min_abs: 180 }
+      # First level with >= min_peer_size eligible cases wins. Every level includes the
+      # case type: unrelated case types are never compared.
+      peer_levels:
+        - [court_id, case_type, current_stage, filing_cohort]
+        - [court_id, case_type, current_stage]
+        - [court_id, case_type]
+        - [case_type, current_stage]
+        - [case_type]
+    case:
+      features:
+        case_age_days: { floor: 90.0, min_abs: 1095 }
+        days_since_last_listing: { floor: 30.0, min_abs: 365 }
+        days_to_first_listing: { floor: 30.0, min_abs: 180 }
+        next_listing_gap: { floor: 30.0, min_abs: 180 }
+      # case_status is in every level: pending and disposed cases are never compared.
+      peer_levels:
+        - [court_id, case_type, case_status, current_stage, filing_cohort]
+        - [court_id, case_type, case_status, filing_cohort]
+        - [district_id, case_type, case_status, filing_cohort]
+        - [state_code, case_type, case_status, filing_cohort]
+        - [district_id, case_category, case_status, filing_cohort]
+  min_peer_size: 30
+  z_threshold: 3.5
+  percentile_threshold: 0.95
+  severity:
+    high: 7.0
+    medium: 5.0
+    low: 3.5
+  isolation_forest:
+    n_estimators: 200
+    contamination: auto
+    max_samples: 256
+    random_state: 42
+    top_fraction: 0.01
+    # IF is fitted on at most this many cases (random sample) and scores all.
+    max_fit_rows: 200000
+
+evaluation:
+  top_k: [10, 25, 50]
+  sensitivity:
+    drop_rates: [0.0, 0.1, 0.2, 0.3]
+    mask_rates: [0.0, 0.1, 0.2, 0.3]
+    repeats: 2
+    random_state: 7
+  review_sample_size: 50
+
