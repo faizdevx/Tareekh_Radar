@@ -45,6 +45,11 @@ Records per filing year in the DDL files: 2010 4.28M, 2011 5.21M, 2012 6.40M, 20
 - Delete account: removes every case document, then the login (Firebase may ask for a fresh sign-in; the UI says so).
 - The Firebase web config is public by design; protection is the rules, not the key.
 
+## Time left and "Ask an AI" (`logic.js remainingTime`, `ai.js`)
+- Time left: with `F(m)` the monthly share decided and age month `a`, the share of still-pending cases decided within `k` more months is `(F(a+k) − F(a)) / (1 − F(a))`. The reported half/9-in-10 are the smallest `k` reaching 0.5/0.9; `null` means not reached within follow-up (shown as "more than"). If fewer than 6 months of follow-up remain after the age, no estimate is given; if under 3% of cases remain pending at that age it is flagged as a rough guide.
+- The AI prompt is built from: case type, court, statistics level, case age, gaps, stage text (and its decoded meaning), adjournment counts and hearing count (diary), the real quantiles, outcome shares and the verdict. It tells the model to use only these facts, not to invent numbers and not to predict the outcome, and asks for plain-language explanation, five questions for the lawyer, lawful next steps and the limits of the numbers.
+- Sending is always the person's action: edit the preview, tick the consent box, press a button. `?q=` pre-fills ChatGPT and Claude; auto-send is not guaranteed by either, and the answer is not returned to the site. Over 7,000 encoded characters only Copy is offered.
+
 ## Collection date (why there is no "today" in the historical data)
 DDL does not publish when each record was collected. In the 2010–2011 files, pending cases' last listings cluster around **Jan–Feb 2019**, and a minority were updated in **2020**. A single snapshot date would therefore be wrong for most records. An earlier version used the 99.9th percentile of listing dates (about Sept 2020), and it made 81% of Maharashtra's pending cases look unlisted for over a year. The fix is that nothing in the public statistics depends on a collection date:
 - durations of pending cases end at their own last listing;

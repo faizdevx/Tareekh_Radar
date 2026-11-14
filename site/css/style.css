@@ -272,6 +272,13 @@ textarea { width: 100%; background: #fff; border: 1px solid var(--line); border-
   details.card:not([open]) { display: none; }
 }
 
+/* time left + ask AI */
+.card.timeleft { margin-top: 14px; border-top: 6px solid var(--green); }
+.card.timeleft h3, .ask-ai summary { margin: 0 0 6px; font-size: 20px; }
+.ask-ai summary { cursor: pointer; font-weight: 700; margin: 0; }
+.ask-ai textarea { font-family: ui-monospace, Consolas, monospace; font-size: 13px; line-height: 1.5; }
+.ask-ai .consent { margin-top: 12px; }
+
 /* account */
 .acct-chip { border: 1px solid var(--ink); border-radius: 999px; padding: 4px 14px; font-size: 14px; font-weight: 700; color: var(--ink); text-decoration: none; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 .acct-chip.on { background: var(--ink); color: #fff; }

@@ -1,6 +1,7 @@
 import { t } from "./i18n.js";
 import { icons, logo, hero, brush, vignetteScales, vignetteHourglass, vignettePen, courthouse } from "./art.js";
-import { pickStats, checkCase, formatDuration, formatHeadline, pct, shareDecidedAt, MONTH_DAYS } from "./logic.js";
+import { pickStats, checkCase, formatDuration, formatHeadline, pct, shareDecidedAt, remainingTime, MONTH_DAYS } from "./logic.js";
+import { buildPrompt, aiLinks, describeLeft } from "./ai.js";
 import { STAGES, decodePurpose, STAGE_GROUPS, GROUP_LABEL, questionsFor, QUESTIONS, parseCNR, DAKSH, CRIMINAL_CATS,
   costEstimate, approxPercentile, nextSteps, DEADLINES } from "./help.js";
 import { loadDiary, saveDiary, sanitizeDiary, newId, sortedEntries, caseSummary, daysBetween, todayISO, buildICS, download,
@@ -217,7 +218,9 @@ async function pageEstimate(params) {
       <div class="card"><h2 style="font-size:20px">${tr("est_curve")}</h2>${curveChart(stats.curve_monthly_share_decided)}
       <div class="two-stats"><div class="statbox"><div class="k">${tr("est_first")}</div><div class="v" style="font-size:24px">${esc(ttf ? formatDuration(ttf.p50, state.lang) : "–")}</div></div>
       <div class="statbox"><div class="k">${tr("est_gap")}</div><div class="v" style="font-size:24px">${esc(gap ? formatDuration(gap.p50, state.lang) : "–")}</div></div></div></div></div>
+    <div id="ai-slot"></div>
     ${levelNote(level, stats.n)}<p class="note">${tr("not_advice")}</p>`;
+  mountAskAI($("#ai-slot"), aiFacts({ stats, level, district, c }));
 }
 
 async function pageCheck(params) {
@@ -230,9 +233,11 @@ async function pageCheck(params) {
         <div class="field"><label for="i-l">${tr("last_hearing")}</label><input type="date" id="i-l" required></div>
         <div class="field"><label for="i-n">${tr("next_hearing")}</label><input type="date" id="i-n"></div>
       </div>
+      <div class="field" style="margin-top:14px"><label for="i-pu">${tr("check_stage")}</label><input class="text" id="i-pu" maxlength="100" list="i-plist" autocomplete="off" placeholder="${esc(tr("decode_ph"))}"><datalist id="i-plist"></datalist></div>
       <div class="form-actions"><button class="btn btn-red">${tr("check_go")} <span class="arrow">→</span></button><span class="note">${tr("privacy_note")}</span></div>
       <ul class="errors" id="errs"></ul></form><div id="out" class="result"></div></section>`;
   wireSelectors($("#main"));
+  purposes().then((pp) => { const dl = $("#i-plist"); if (dl && pp) dl.innerHTML = pp.purposes.slice(0, 80).map((r) => `<option value="${esc(r.text)}">`).join(""); });
   $("#f").addEventListener("submit", async (e) => {
     e.preventDefault();
     const v = readSel();
@@ -245,11 +250,11 @@ async function pageCheck(params) {
     const res = checkCase(inputs, stats, today);
     if (res.errors.length) { $("#errs").innerHTML = res.errors.map((k) => `<li>${tr(k)}</li>`).join(""); return; }
     $("#errs").innerHTML = "";
-    renderCheckResult(res, stats, level, district, v.c, v);
+    renderCheckResult(res, stats, level, district, v.c, v, $("#i-pu").value.trim());
   });
 }
 
-function renderCheckResult(res, stats, level, district, c, sel = {}) {
+function renderCheckResult(res, stats, level, district, c, sel = {}, purposeText = "") {
   const vText = { longer: tr("v_longer"), somewhat: tr("v_somewhat"), usual: tr("v_usual"), insufficient: tr("v_insufficient") }[res.verdict];
   let rangeHTML = "";
   if (res.gapP95 != null) {
@@ -268,10 +273,12 @@ function renderCheckResult(res, stats, level, district, c, sel = {}) {
       <div class="statbox"><div class="k">${tr("similar_listed")}</div><div class="v" style="color:var(--green)">${esc(res.gapP95 != null ? formatDuration(res.gapP95, state.lang) : "–")}</div><div class="note">${tr("of_cases_95")}</div></div></div>
     ${rangeHTML}${ageLine}
     ${res.reasons.length ? `<ul class="reasons">${res.reasons.map((r) => `<li>${esc(tr(r))}</li>`).join("")}</ul>` : ""}
-    ${stuckMeter(res, stats)}
+    ${timeLeftHTML(stats, res.ageDays)}${stuckMeter(res, stats)}
+    <div id="ai-slot" style="margin-top:18px"></div>
     <h2 class="section-title" style="margin-top:20px;font-size:20px">${tr("steps_title")}</h2>
     <ul class="links">${nextSteps(res, c).map((k) => `<li><a href="${stepHref(k, sel, c)}">${STEP_ICONS[k] || icons.doc}${esc(tr(k))}<span class="go">→</span></a></li>`).join("")}
     </ul>${levelNote(level, stats?.n)}<p class="note">${tr("not_advice")}</p>`;
+  if (stats) mountAskAI($("#ai-slot"), aiFacts({ stats, level, district, c, res, purposeText }));
 }
 
 async function pageDistrict(params) {
@@ -692,6 +699,7 @@ function pagePrivacy() {
   <h2>Why</h2><p>Only to let you sign in and open your diary on more than one device. We do not use it for anything else, and we do not sell or share it.</p>
   <h2>Where and who</h2><p>Accounts and diary data are held by Google Firebase (Authentication and Cloud Firestore) in the Mumbai region (asia-south1). Google acts as our service provider. Data is encrypted in transit. Access rules allow each signed-in user to read and write only their own diary. The project owner can technically open the database through the Firebase console but does not read users' diaries.</p>
   <h2>Please be careful what you write</h2><p>Do not enter other people's names, phone numbers, addresses or identity numbers, or anything you would not want stored online. Case names can be nicknames ("Cheque case 1"). If you want nothing stored online, do not create an account.</p>
+  <h2>"Ask an AI" (optional)</h2><p>The "Ask an AI" panel builds a question from numbers on this site and the timing details you entered (case type, district, case age, stage). It never includes your CNR, names or diary notes unless you type them. You can read and edit the text, and nothing happens until you tick the box and press a button. The text then goes from your browser straight to the AI app you choose (for example ChatGPT or Claude) and is handled under that company's own privacy policy. We do not receive it or the answer.</p>
   <h2>Your choices</h2><ul><li>Use every tool without an account.</li><li>Export a backup file of your diary at any time (My cases → Export backup).</li><li>Delete your account and all your cloud data yourself, in the app (Account → Delete my account and cloud data). A copy kept on your own device is not touched.</li><li>Withdraw consent by deleting your account. To ask for a correction or deletion another way, contact us as above.</li></ul>
   <h2>How long</h2><p>Until you delete it.</p>
   <h2>If something goes wrong</h2><p>If we learn of a breach affecting your data, we will tell affected users and the authorities as the law requires. No online service can promise perfect security.</p>
@@ -846,12 +854,15 @@ async function pageCase(params) {
 
   // Compare with real cases once the case has enough details.
   if (!(c.s && c.d && c.c && c.filed && s.last)) { $("#stuck").innerHTML = `<p class="note" style="margin-top:14px">${tr("diary_check_need")}</p>`; return; }
-  const { stats } = await statsFor(c.s, c.d, c.c);
+  const { level, stats, district } = await statsFor(c.s, c.d, c.c);
   const res = checkCase({ filing: c.filed, last: s.last, next: s.next || null }, stats, new Date(todayISO() + "T00:00:00Z"));
   if (res.errors.length || !stats) return;
   const vText = { longer: tr("v_longer"), somewhat: tr("v_somewhat"), usual: tr("v_usual"), insufficient: tr("v_insufficient") }[res.verdict];
-  $("#stuck").innerHTML = `<div class="verdict ${res.verdict}" style="margin-top:18px">${icons.hourglass}<span>${esc(vText)}</span></div>${stuckMeter(res, stats)}
+  $("#stuck").innerHTML = `<div class="verdict ${res.verdict}" style="margin-top:18px">${icons.hourglass}<span>${esc(vText)}</span></div>
+    <div style="margin-top:14px">${timeLeftHTML(stats, res.ageDays)}</div>${stuckMeter(res, stats)}
+    <div id="ai-slot" class="no-print" style="margin-top:14px"></div>
     <ul class="links no-print" style="margin-top:14px">${nextSteps(res, c.c).map((k) => `<li><a href="${stepHref(k, c, c.c)}">${STEP_ICONS[k] || icons.doc}${esc(tr(k))}<span class="go">→</span></a></li>`).join("")}</ul>`;
+  mountAskAI($("#ai-slot"), aiFacts({ stats, level, district, c: c.c, res, purposeText: s.purpose, diaryStats: { hearings: s.hearings, adj: s.adj } }));
 }
 
 function pageDeadlines(params) {
@@ -890,6 +901,85 @@ function pageDeadlines(params) {
   $("#ics")?.addEventListener("click", () => download(`deadline-${last}.ics`, buildICS({
     uid: `dl-${k}-${last}`, date: last, title: tr("dl_ics", { t: dl(x).t }), description: `${x.law}\n${tr("not_advice")}`,
   }), "text/calendar"));
+}
+
+
+/* ---------------- time left + "ask an AI" ---------------- */
+function timeLeftHTML(stats, ageDays) {
+  const r = remainingTime(stats?.curve_monthly_share_decided, ageDays);
+  const dur = (m) => formatDuration(m * MONTH_DAYS, state.lang);
+  const age = dur(r.ageMonths ?? Math.max(0, Math.floor(ageDays / MONTH_DAYS)));
+  let body;
+  if (r.status === "none") body = `<p>${tr("tl_none")}</p>`;
+  else if (r.status === "beyond") body = `<p>${tr("tl_beyond", { max: dur(r.followupMonths) })}</p>`;
+  else {
+    const part = (m) => (m == null ? tr("not_reached", { d: dur(r.moreThan) }) : dur(m));
+    body = `<div class="two-stats"><div class="statbox"><div class="k">${tr("tl_half")}</div><div class="v">${esc(part(r.p50))}</div></div>
+      <div class="statbox"><div class="k">${tr("tl_nine")}</div><div class="v">${esc(part(r.p90))}</div></div></div>
+      ${r.next12 != null ? `<p>${esc(tr("tl_next12", { p: pct(r.next12) }))}</p>` : ""}${r.thin ? `<p class="warn">${tr("tl_thin")}</p>` : ""}`;
+  }
+  return `<div class="card timeleft"><h3>${tr("tl_title")}</h3>${r.status === "none" ? "" : `<p class="note">${esc(tr("tl_sub", { age }))}</p>`}${body}<p class="note">${tr("tl_note")}</p></div>`;
+}
+
+/** Facts for the AI prompt: aggregates and the person's own timing only (never names, CNR or notes). */
+function aiFacts({ stats, level, district, c, res, purposeText, diaryStats }) {
+  const en = (k) => t("en", k);
+  const dur = (d) => formatDuration(d, "en");
+  const tt = stats.time_to_decision_days || {};
+  const head = (d) => (d == null ? `more than ${formatHeadline(tt.max_followup, "en")}` : formatHeadline(d, "en"));
+  const gap = stats.next_hearing_gap_days;
+  const m = state.meta;
+  const f = {
+    years: m.filing_years.length > 2 ? `${m.filing_years[0]}-${m.filing_years[m.filing_years.length - 1]}` : m.filing_years.join(", "),
+    category: m.categories[c]?.en ?? c, place: [district?.name, district?.state_name].filter(Boolean).join(", "),
+    source: { district: "this district", state: "the whole state", national: "all covered states" }[level], n: stats.n,
+    half: head(tt.p50), nine: head(tt.p90), gapMedian: gap ? dur(gap.p50) : null, gapP95: gap ? dur(gap.p95) : null,
+    outcomes: Object.entries(stats.outcomes || {}).filter(([k, v]) => v >= 0.05 && k !== "unspecified").slice(0, 4)
+      .map(([k, v]) => `${m.outcome_groups?.[k]?.en ?? k} ${pct(v)}`),
+  };
+  if (res) {
+    f.age = dur(res.ageDays); f.sinceLast = dur(res.gapDays);
+    f.scheduled = res.scheduledGapDays != null ? dur(res.scheduledGapDays) : null;
+    f.verdict = en({ longer: "v_longer", somewhat: "v_somewhat", usual: "v_usual", insufficient: "v_insufficient" }[res.verdict]);
+    f.reasons = res.reasons.map((k) => en(k));
+    f.left = describeLeft(remainingTime(stats.curve_monthly_share_decided, res.ageDays));
+  }
+  if (purposeText) { const st = decodePurpose(purposeText); f.stage = { text: purposeText, meaning: st ? st.en.t : "" }; }
+  if (diaryStats) { f.hearings = diaryStats.hearings; f.adj = diaryStats.adj; }
+  return f;
+}
+
+/** Renders the "Ask an AI" panel into `el`. The person sees and can edit the exact text, and must tick a box. */
+function mountAskAI(el, facts) {
+  if (!el) return;
+  el.innerHTML = `<details class="card ask-ai"><summary>${tr("ai_title")}</summary>
+    <p>${tr("ai_intro")}</p>
+    <div class="field"><label for="ai-q">${tr("ai_q_label")}</label><input class="text" id="ai-q" maxlength="500" placeholder="${esc(tr("ai_q_ph"))}" autocomplete="off"></div>
+    <label class="note" for="ai-t" style="display:block;margin-top:12px">${tr("ai_preview")}</label>
+    <textarea id="ai-t" rows="14" spellcheck="false"></textarea>
+    <label class="consent"><input type="checkbox" id="ai-ok"><span>${tr("ai_consent")}</span></label>
+    <div class="form-actions"><button class="btn btn-red" id="ai-gpt" type="button">${tr("ai_chatgpt")}</button>
+      <button class="btn btn-dark" id="ai-cl" type="button">${tr("ai_claude")}</button>
+      <button class="btn btn-ghost" id="ai-cp" type="button">${tr("ai_copy")}</button></div>
+    <p class="note" id="ai-msg" aria-live="polite"></p><p class="note">${tr("ai_note")}</p></details>`;
+  const ta = $("#ai-t", el), q = $("#ai-q", el), ok = $("#ai-ok", el), msg = $("#ai-msg", el);
+  let edited = false;
+  const fill = () => { if (!edited) ta.value = buildPrompt({ ...facts, question: q.value }, state.lang); check(); };
+  const check = () => { msg.textContent = aiLinks(ta.value).direct ? "" : tr("ai_too_long"); };
+  const open = (which) => {
+    if (!ok.checked) { msg.textContent = tr("ai_need_consent"); return; }
+    const l = aiLinks(ta.value);
+    if (!l.direct) { msg.textContent = tr("ai_too_long"); return; }
+    window.open(l[which], "_blank", "noopener,noreferrer");
+  };
+  q.addEventListener("input", fill);
+  ta.addEventListener("input", () => { edited = true; check(); });
+  $("#ai-gpt", el).addEventListener("click", () => open("chatgpt"));
+  $("#ai-cl", el).addEventListener("click", () => open("claude"));
+  $("#ai-cp", el).addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(ta.value); msg.textContent = tr("copied"); } catch (_) { ta.select(); document.execCommand?.("copy"); msg.textContent = tr("copied"); }
+  });
+  fill();
 }
 
 /* ---------------- router ---------------- */

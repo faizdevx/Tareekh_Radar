@@ -34,6 +34,28 @@ export function shareDecidedAt(curve, months) {
   return { value: curve[m], beyond: false };
 }
 
+/**
+ * Time left for a case that is already `ageDays` old: among similar cases still pending at that age,
+ * when were half / 9 in 10 of them decided? Uses the monthly KM curve, conditional on surviving to the age.
+ * status: ok | beyond (age past the follow-up) | none. Months are whole months; null = not reached in the data.
+ */
+export function remainingTime(curve, ageDays) {
+  if (!Array.isArray(curve) || ageDays == null || !(ageDays >= 0)) return { status: "none" };
+  let last = -1;
+  for (let i = curve.length - 1; i >= 0; i--) if (curve[i] !== null && curve[i] !== undefined) { last = i; break; }
+  if (last < 0) return { status: "none" };
+  const a = Math.floor(ageDays / MONTH_DAYS);
+  if (last - a < 6) return { status: "beyond", followupMonths: last }; // too little follow-up left to say anything
+  const fa = curve[a];
+  if (fa === null || fa === undefined) return { status: "none" };
+  const pending = 1 - fa;
+  if (pending <= 0.005) return { status: "none" };
+  const after = (m) => (curve[m] - fa) / pending;
+  const find = (q) => { for (let m = a + 1; m <= last; m++) if (curve[m] !== null && curve[m] !== undefined && after(m) >= q) return m - a; return null; };
+  return { status: "ok", ageMonths: a, stillPending: pending, thin: pending < 0.03, p50: find(0.5), p90: find(0.9),
+    next12: a + 12 <= last && curve[a + 12] != null ? after(a + 12) : null, moreThan: last - a };
+}
+
 export function validateInputs({ filing, last, next, today }) {
   const errors = [];
   const f = parseDate(filing), l = parseDate(last), n = next ? parseDate(next) : null;
