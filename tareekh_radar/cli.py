@@ -167,6 +167,17 @@ def cmd_review_evaluate(args) -> int:
     return 0
 
 
+def cmd_build_map(args) -> int:
+    from .public.geo import build_map
+
+    res = build_map(args.geojson, args.out, args.state_prop, args.district_prop,
+                    attribution="India District Map (Census 2011) by DataMeet India community, simplified",
+                    licence="CC BY 2.5 IN", tol_deg=args.tol)
+    print({k: v for k, v in res.items() if k != "ddl_missing"})
+    print("not on map:", len(res["ddl_missing"]), res["ddl_missing"][:60])
+    return 0
+
+
 def cmd_build_purposes(args) -> int:
     from .public.build import build_purposes
 
@@ -199,6 +210,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--name", default=None)
     s.set_defaults(func=cmd_ddl_extract)
 
+    s = sub.add_parser("build-map", help="Write site india_map.json from a district boundary GeoJSON (e.g. DataMeet dists11)")
+    s.add_argument("--geojson", required=True)
+    s.add_argument("--out", default="site/data")
+    s.add_argument("--state-prop", default="ST_NM")
+    s.add_argument("--district-prop", default="DISTRICT")
+    s.add_argument("--tol", type=float, default=0.02, help="Simplification tolerance in degrees")
+    s.set_defaults(func=cmd_build_map)
     s = sub.add_parser("build-rankings", help="Write site rankings.json from the published district JSON")
     s.add_argument("--out", default="site/data")
     s.set_defaults(func=lambda a: (__import__("tareekh_radar.public.build", fromlist=["build_rankings"]).build_rankings(a.out), print("rankings.json written"), 0)[-1])

@@ -62,6 +62,12 @@ Records per filing year in the DDL files: 2010 4.28M, 2011 5.21M, 2012 6.40M, 20
 - Notice drafts are English templates with visible blanks for missing values; each page carries a "draft only, have a lawyer check" banner. No rent/eviction template (state-specific law).
 - Legal aid checker: any yes among the seven Section 12 categories = "likely eligible"; the letter cites s.13(2) when income is the ground.
 
+## India delay map
+- Source: DataMeet `dists11.geojson` (Census 2011 districts, CC BY 2.5 IN). Rebuild: `python -m tareekh_radar.cli build-map --geojson dists11.geojson --out site/data`.
+- Keep the "Data Not Available" polygon: it is part of India's official outline (shown grey).
+- Matching rules and every match are recorded in `site/data/india_map_match.json` for review. Districts created after 2011 cannot be drawn on 2011 boundaries; their parent district's colour shows the parent's own court data only.
+- Colours: quintiles of district medians for the chosen case type; "not reached in follow-up" is the darkest colour.
+
 ## Collection date (why there is no "today" in the historical data)
 DDL does not publish when each record was collected. In the 2010–2011 files, pending cases' last listings cluster around **Jan–Feb 2019**, and a minority were updated in **2020**. A single snapshot date would therefore be wrong for most records. An earlier version used the 99.9th percentile of listing dates (about Sept 2020), and it made 81% of Maharashtra's pending cases look unlisted for over a year. The fix is that nothing in the public statistics depends on a collection date:
 - durations of pending cases end at their own last listing;

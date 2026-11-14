@@ -505,3 +505,16 @@ html.hc body { background: #fff; background-image: none; }
 html.hc .card, html.hc .tile, html.hc .fold, html.hc .steps3d li, html.hc .yn-list li, html.hc .case-card { background: #fff; border: 2px solid #000; }
 html.hc .note { color: #000; }
 html.hc a { color: #00008b; text-decoration: underline; }
+
+/* India delay map */
+.map-wrap { margin-top: 16px; padding: 10px; }
+#map { width: 100%; height: auto; max-height: 78vh; display: block; touch-action: manipulation; }
+#map path { stroke: #fff; stroke-width: .5; cursor: pointer; vector-effect: non-scaling-stroke; }
+#map path:hover { stroke: var(--ink); stroke-width: 1.5; }
+#map path.sel { stroke: var(--ink); stroke-width: 2.5; }
+.map-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 14px; margin-top: 8px; }
+.map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.map-legend i { width: 18px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.15); }
+.map-info { margin-top: 14px; }
+.map-info h3 { margin: 0 0 4px; font-size: 20px; }
+.big-val { font-family: var(--display); font-size: 40px; color: var(--red); margin: 0; line-height: 1.1; }

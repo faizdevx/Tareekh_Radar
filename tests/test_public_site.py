@@ -128,3 +128,29 @@ def test_build_rankings_sorts_fastest_first(tmp_path):
     r = build_rankings(tmp_path)
     assert [row[0] for row in r["categories"]["bail"]] == ["01-02", "01-01", "01-03"]
     assert "other" not in r["categories"]
+
+
+def test_build_map_matching_and_simplification(tmp_path):
+    from tareekh_radar.public.geo import _dp, build_map, norm
+
+    assert norm("Kheda at Nadiad") == "kheda" and norm("Saran (chhapra)") == "saran" and norm("Jaipur Metro II") == "jaipur"
+    line = [(0, 0), (1, 0.001), (2, 0), (3, 0.001), (4, 0)]
+    assert _dp(line, 0.01) == [(0, 0), (4, 0)]
+    meta = {"states": [{"name": "Telangana", "districts": [{"id": "29-01", "name": "Hyderabad", "n": 100}]},
+                       {"name": "Karnataka", "districts": [{"id": "03-01", "name": "VIJAYAPURA", "n": 50}]},
+                       {"name": "Haryana", "districts": [{"id": "14-06", "name": "Gurugram", "n": 70}]}]}
+    (tmp_path / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    sq = lambda x, y: {"type": "Polygon", "coordinates": [[[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1], [x, y]]]}
+    gj = {"type": "FeatureCollection", "features": [
+        {"properties": {"ST_NM": "Andhra Pradesh", "DISTRICT": "Hyderabad"}, "geometry": sq(78, 17)},      # moved to Telangana
+        {"properties": {"ST_NM": "Chhattisgarh", "DISTRICT": "Bijapur"}, "geometry": sq(80, 18)},         # must NOT match Karnataka
+        {"properties": {"ST_NM": "Karnataka", "DISTRICT": "Bijapur"}, "geometry": sq(75, 16)},
+        {"properties": {"ST_NM": "Haryana", "DISTRICT": "Gurgaon"}, "geometry": sq(77, 28)},
+        {"properties": {"ST_NM": "Jammu & Kashmir", "DISTRICT": "Data Not Available"}, "geometry": sq(74, 35)}]}
+    gp = tmp_path / "d.geojson"
+    gp.write_text(json.dumps(gj), encoding="utf-8")
+    summ = build_map(gp, tmp_path, "ST_NM", "DISTRICT", "test", "CC BY", tol_deg=0.001)
+    out = json.loads((tmp_path / "india_map.json").read_text(encoding="utf-8"))
+    ids = [f["id"] for f in out["features"]]
+    assert ids == ["29-01", None, "03-01", "14-06", None]  # placeholder kept, wrong-state Bijapur left grey
+    assert summ["ddl_on_map"] == 3 and all(f["d"].startswith("M") for f in out["features"])

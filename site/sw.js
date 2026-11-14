@@ -2,7 +2,7 @@
 // App files: network first (always fresh when online), cache as fallback.
 // Statistics JSON and fonts: cached copy first, refreshed in the background.
 // Sign-in / database traffic (Firebase, Google APIs) is never cached.
-const CACHE = "cc-v3";
+const CACHE = "cc-v4";
 const SHELL = ["./", "index.html", "css/style.css", "js/app.js", "js/i18n.js", "js/art.js", "js/logic.js", "js/help.js",
   "js/diary.js", "js/ai.js", "js/prep.js", "js/layer2.js", "js/voice.js", "js/ocr.js", "manifest.webmanifest", "assets/icon-192.png",
   "data/meta.json", "data/national.json", "data/purposes.json"];

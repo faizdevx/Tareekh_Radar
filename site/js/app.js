@@ -22,7 +22,7 @@ const LINKS = {
   judgments: "https://judgments.ecourts.gov.in/",
 };
 
-const state = { lang: "en", meta: null, national: null, states: {}, districts: {}, purposes: null, rankings: null };
+const state = { lang: "en", meta: null, national: null, states: {}, districts: {}, purposes: null, rankings: null, geo: null };
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const tr = (k, v) => t(state.lang, k, v);
@@ -63,7 +63,7 @@ function renderChrome(path) {
   document.documentElement.lang = state.lang;
   $("#brand").innerHTML = `${logo()}<span><div class="brand-name">${tr("brand")}</div><div class="brand-hi">${tr("brand_hi")}</div></span>`;
   const nav = [["/diary", "nav_diary"], ["/check", "nav_check"], ["/estimate", "nav_estimate"], ["/district", "nav_districts"], ["/help", "nav_help"]];
-  const helpPaths = ["/help", "/find", "/decode", "/lawyer", "/cost", "/rights", "/deadlines", "/before", "/aid", "/notices", "/journey", "/intake", "/poster", "/quiz", "/rankings", "/story", "/opendata"];
+  const helpPaths = ["/map", "/help", "/find", "/decode", "/lawyer", "/cost", "/rights", "/deadlines", "/before", "/aid", "/notices", "/journey", "/intake", "/poster", "/quiz", "/rankings", "/story", "/opendata"];
   const isActive = (p) => path === p || (p === "/help" && helpPaths.includes(path)) || (p === "/diary" && path === "/case");
   $("#main-nav").innerHTML = nav.map(([p, k]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${tr(k)}</a>`).join("");
   $("#lang-toggle").innerHTML = state.lang === "en" ? "<b>EN</b> / हिंदी" : "EN / <b>हिंदी</b>";
@@ -422,7 +422,7 @@ function pageHelp() {
     <h2 class="section-title" style="margin-top:26px">${tr("hub_helpers")}</h2><p class="note">${tr("hub_helpers_sub")}</p>
     ${tileList([["#/intake", tr("tile_intake"), "docc", 3], ["#/poster", tr("tile_poster"), "barsm", 4], ["#/quiz", tr("tile_quiz"), "chat", 1], ["#/diary", tr("ag_title"), "book", 0]])}
     <h2 class="section-title" style="margin-top:26px">${tr("hub_data")}</h2>
-    ${tileList([["#/rankings", tr("tile_rankings"), "barsm", 3], ["#/story", tr("tile_story"), "docc", 2], ["#/opendata", tr("tile_opendata"), "search", 4], ["#/district", tr("tile_district"), "barsm", 1]])}
+    ${tileList([["#/map", tr("tile_map"), "barsm", 0], ["#/rankings", tr("tile_rankings"), "barsm", 3], ["#/story", tr("tile_story"), "docc", 2], ["#/opendata", tr("tile_opendata"), "search", 4], ["#/district", tr("tile_district"), "barsm", 1]])}
     <p class="note">${tr("tools_sub")}</p></section>`;
 }
 
@@ -1251,7 +1251,7 @@ async function sharedWithMeHTML() {
 const TILES = [["/diary", "tile_diary", "book", 0], ["/check", "tile_check", "calsm", 1], ["/estimate", "tile_estimate", "hg", 2],
   ["/decode", "tile_decode", "docc", 3], ["/deadlines", "tile_deadlines", "clockc", 0], ["/rights", "tile_rights", "scalesc", 2],
   ["/lawyer", "tile_lawyer", "chat", 3], ["/cost", "tile_cost", "rupee", 1], ["/find", "tile_find", "search", 4], ["/district", "tile_district", "barsm", 4],
-  ["/before", "tile_before", "search", 2], ["/notices", "tile_notices", "docc", 0]];
+  ["/before", "tile_before", "search", 2], ["/notices", "tile_notices", "docc", 0], ["/map", "tile_map", "barsm", 3]];
 function bigTiles() {
   return `<div class="big-tiles">${TILES.map(([p, k, ic, c]) => `<a class="tile c${c}" href="#${p}"><span class="tile-ic">${icons[ic]}</span><span class="tile-t">${tr(k)}</span></a>`).join("")}</div>`;
 }
@@ -1509,6 +1509,78 @@ function agendaHTML() {
   return body ? `<div class="card agenda-card" style="margin-bottom:16px"><h2>${tr("ag_title")}</h2>${body}</div>` : "";
 }
 
+
+/* ---------------- India delay map (SVG, no map library) ---------------- */
+async function mapData() { try { return (state.geo ??= await getJSON("data/india_map.json")); } catch (_) { return null; } }
+const MAP_COLORS = ["#fdf0c2", "#f8c873", "#ef8f47", "#d4483f", "#9c1820", "#5a0d12"];
+const MAP_GREY = "#d9d2c6";
+/** Five quantile bins (0 = shortest wait); for medians, "not reached in the data" goes to bin 5. */
+function mapBins(values) {
+  const v = values.filter((x) => x != null).sort((a, b) => a - b);
+  if (!v.length) return { cuts: [], bin: () => -1 };
+  const cuts = [0.2, 0.4, 0.6, 0.8].map((p) => v[Math.floor(p * (v.length - 1))]);
+  return { cuts, min: v[0], max: v[v.length - 1], bin: (x) => cuts.filter((t) => x > t).length };
+}
+
+async function pageMap(params) {
+  const [geo, r] = await Promise.all([mapData(), rankings()]);
+  if (!geo || !r) { $("#main").innerHTML = `<section class="wrap page"><p>${tr("no_data")}</p></section>`; return; }
+  const cats = Object.keys(r.categories).filter((k) => k !== "other");
+  const c = r.categories[params.get("c")] ? params.get("c") : "criminal_case";
+  const metric = params.get("m") === "u3" ? "u3" : "median";
+  const rows = new Map(r.categories[c].map((x) => [x[0], x]));
+  const valOf = (row) => (metric === "median" ? row[1] : row[3]);
+  const { cuts, min, max, bin } = mapBins(r.categories[c].map(valOf));
+  const fmtV = (x) => (x == null ? (metric === "median" ? tr("rk_notreached") : "–") : metric === "median" ? formatHeadline(x, state.lang) : pct(x));
+  const colorOf = (f) => {
+    const row = f.id && rows.get(f.id);
+    if (!row) return MAP_GREY;
+    const v = valOf(row);
+    if (v == null) return metric === "median" ? MAP_COLORS[5] : MAP_GREY;
+    return MAP_COLORS[bin(v)];
+  };
+  const states = [...new Set(geo.features.map((f) => f.st))].sort();
+  const legendStops = [min, ...cuts, max];
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("map_title"), "#/")}
+    <p class="lead">${tr("map_intro")}</p>
+    <form id="mf" class="form-grid">
+      <div class="field"><label for="m-c">${tr("case_type")}</label><select id="m-c">${cats.map((k) => `<option value="${k}" ${k === c ? "selected" : ""}>${esc(catName(k))}</option>`).join("")}</select></div>
+      <div class="field"><label for="m-m">${tr("map_metric")}</label><select id="m-m"><option value="median" ${metric === "median" ? "selected" : ""}>${tr("rk_median")}</option><option value="u3" ${metric === "u3" ? "selected" : ""}>${tr("m_3y")}</option></select></div>
+      <div class="field"><label for="m-s">${tr("map_zoom")}</label><select id="m-s"><option value="">${tr("map_all")}</option>${states.map((s) => `<option>${esc(s)}</option>`).join("")}</select></div></form>
+    <div class="map-wrap card"><svg id="map" viewBox="${geo.viewBox}" role="img" aria-label="${esc(tr("map_title") + ": " + catName(c))}">
+      <g>${geo.features.map((f, i) => `<path d="${f.d}" fill="${colorOf(f)}" data-i="${i}"><title>${esc(f.dn)}, ${esc(f.st)}</title></path>`).join("")}</g></svg>
+      <div class="map-legend">${MAP_COLORS.slice(0, 5).map((col, i) => `<span><i style="background:${col}"></i>${esc(i === 0 ? "≤ " + fmtV(legendStops[1]) : i === 4 ? "> " + fmtV(legendStops[4]) : fmtV(legendStops[i]) + "–" + fmtV(legendStops[i + 1]))}</span>`).join("")}
+        ${metric === "median" ? `<span><i style="background:${MAP_COLORS[5]}"></i>${tr("rk_notreached")}</span>` : ""}<span><i style="background:${MAP_GREY}"></i>${tr("map_nodata")}</span></div></div>
+    <div id="map-info" class="card map-info" aria-live="polite"><p class="note">${tr("map_tap")}</p></div>
+    <div class="form-actions"><a class="btn btn-dark" href="#/rankings?c=${c}">${tr("tile_rankings")}</a></div>
+    <p class="note">${tr("map_note")} ${dataYearsNote()}</p>
+    <p class="note">${tr("map_credit")}: ${esc(geo.attribution)} (${esc(geo.licence)}). ${esc(geo.note)}</p></section>`;
+  const svg = $("#map");
+  const full = geo.viewBox;
+  let sel = null;
+  svg.addEventListener("click", (e) => {
+    const p = e.target.closest("path"); if (!p) return;
+    sel?.classList.remove("sel"); sel = p; p.classList.add("sel");
+    const f = geo.features[Number(p.dataset.i)], row = f.id && rows.get(f.id), dd = f.id && distById(f.id);
+    $("#map-info").innerHTML = `<h3>${esc(dd?.name || f.dn)}, ${esc(dd?.state || f.st)}</h3>
+      ${row ? `<p class="big-val">${esc(fmtV(valOf(row)))}</p><p class="note">${metric === "median" ? tr("rk_median") : tr("m_3y")} · ${esc(catName(c))} · ${tr("based_on", { n: fmtN(row[2]) })}</p>
+        <div class="form-actions"><a class="btn btn-red" href="#/estimate?s=${dd?.s}&d=${f.id}&c=${c}">${tr("tile_estimate")}</a><a class="btn btn-ghost" href="#/district?s=${dd?.s}&d=${f.id}">${tr("tile_district")}</a></div>`
+        : `<p>${f.id ? tr("suppressed") : tr("map_nomatch")}</p>`}`;
+  });
+  $("#m-s").addEventListener("change", (e) => {
+    const st = e.target.value;
+    if (!st) { svg.setAttribute("viewBox", full); return; }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    svg.querySelectorAll("path").forEach((p) => {
+      if (geo.features[Number(p.dataset.i)].st !== st) return;
+      const b = p.getBBox(); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.width); y1 = Math.max(y1, b.y + b.height);
+    });
+    if (x0 < Infinity) { const pad = Math.max(x1 - x0, y1 - y0) * 0.06; svg.setAttribute("viewBox", `${x0 - pad} ${y0 - pad} ${x1 - x0 + 2 * pad} ${y1 - y0 + 2 * pad}`); }
+  });
+  const sub = () => go("/map", { c: $("#m-c").value, m: $("#m-m").value });
+  $("#m-c").addEventListener("change", sub); $("#m-m").addEventListener("change", sub);
+}
+
 /* ---------------- router ---------------- */
 async function render() {
   const { path, params } = parseHash();
@@ -1521,7 +1593,7 @@ async function render() {
   const pages = { "/": pageHome, "/estimate": pageEstimate, "/check": pageCheck, "/district": pageDistrict, "/method": pageMethod, "/about": pageAbout,
     "/help": pageHelp, "/find": pageFind, "/decode": pageDecode, "/lawyer": pageLawyer, "/cost": pageCost, "/rights": pageRights,
     "/diary": pageDiary, "/case": pageCase, "/deadlines": pageDeadlines, "/account": pageAccount, "/privacy": pagePrivacy, "/hearing": pageHearing, "/summary": pageSummary, "/before": pageBefore, "/aid": pageAid, "/notices": pageNotices, "/journey": pageJourney,
-    "/intake": pageIntake, "/poster": pagePoster, "/quiz": pageQuiz, "/rankings": pageRankings, "/story": pageStory, "/opendata": pageOpenData };
+    "/intake": pageIntake, "/poster": pagePoster, "/quiz": pageQuiz, "/rankings": pageRankings, "/story": pageStory, "/opendata": pageOpenData, "/map": pageMap };
   const fn = pages[path] || pageHome;
   try { await fn(params); } catch (e) {
     $("#main").innerHTML = `<section class="wrap page"><p>${tr("no_data")}</p><p class="note">${esc(e.message)}</p></section>`;
