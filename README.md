@@ -14,7 +14,7 @@ Tareekh Radar is a research tool. It finds **statistically unusual case-progress
 
 - **Help tools** built around problems litigants raise on Indian legal forums: find and check your CNR, decode the order-sheet stage (glossary matched against the 400 most common stages actually recorded for pending cases), questions to ask your lawyer by stage (print/WhatsApp), cost of delay (real durations × DAKSH survey costs), and free legal aid plus the time limits written in law, with the real district figures next to them.
 
-The current data covers 80,935,944 real cases filed 2010–2018 across 32 states/UTs and 632 districts (DDL eCourts). Older filing years under-represent quickly decided cases (records per year rise from 4.3M in 2010 to 13.7M in 2018), so durations pooled over all years are biased upward; `build-site --min-filing-year` restricts the cohorts. Only aggregates are published, and groups under 30 cases are hidden. Run it locally with `python -m http.server 8611 --directory site`. See [site/README.md](site/README.md) and [docs/public_site.md](docs/public_site.md).
+The site uses 57,489,564 real cases filed 2014–2018 across 32 states/UTs and 632 districts (DDL eCourts). Filing years 2010–2013 are extracted but left out: they under-represent quickly decided cases (records per year rise from 4.3M in 2010 to 13.7M in 2018), which biases durations upward. See `build-site --min-filing-year`. Only aggregates are published, and groups under 30 cases are hidden. Run it locally with `python -m http.server 8611 --directory site`. See [site/README.md](site/README.md) and [docs/public_site.md](docs/public_site.md).
 
 ## Data: real sources only
 

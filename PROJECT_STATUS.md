@@ -30,12 +30,12 @@ _Last updated: 2026-11-14_
 - Verified in the browser at desktop and mobile widths, in English and Hindi. Tests: 51 pytest, 10 node.
 - Reviewed and rejected: two eCourts scrapers suggested for live data, because both solve the eCourts CAPTCHA.
 - Filing years 2012–2018 downloaded and extracted (DDL Dataverse). `ddl-extract` now streams chunks to parquet (the 2018 file is 11.8 GB). Site data now covers **80,935,944 cases filed 2010–2018, 32 states/UTs, 632 districts** (11 MB of JSON). The full build takes about 4.5 hours.
-- **Cohort bias found**: records per filing year rise from 4,281,327 (2010) to 13,724,299 (2018). Older years appear to be missing quickly disposed cases (likely decided before courts migrated to eCourts), so their durations are biased upward and the by-filing-year chart overstates improvement. This is documented on the site. `build-site --min-filing-year` was added; a 2014–2018 build is the recommended next data release.
+- **Cohort bias found**: records per filing year rise from 4,281,327 (2010) to 13,724,299 (2018). Older years appear to be missing quickly disposed cases (likely decided before courts migrated to eCourts), so their durations are biased upward and the by-filing-year chart overstates improvement. This is documented on the site. `build-site --min-filing-year` was added, and the site now uses **cases filed 2014–2018 (57,489,564 cases, 632 districts, 9.9 MB)**. That build takes about 30 minutes.
 - Bail: most states decide half of bail applications within about 2 weeks, but Uttar Pradesh and Rajasthan records show medians of years, which suggests applications are closed only when the main case ends. The site shows a caveat when bail medians exceed 6 months.
 - **Help tools** added (`site/js/help.js`): CNR finder and format check, order-sheet stage decoder (21 stages, EN/HI; matches 95% of pending cases' recorded stage text, using `purposes.json` built from real records), questions for your lawyer by stage (print / WhatsApp / copy), cost-of-delay estimate (DAKSH 2015-16 per-day costs, editable), free legal aid (LSA Act s.12) and statutory time limits with real district medians, and a "stuck meter" plus tailored next steps on the delay check. Legal references were checked against statutes, NALSA and eCourts pages.
 - GitHub Pages enabled: https://faizdevx.github.io/Tareekh_Radar/
 - Tests: 53 pytest, 15 node.
-- Pending: human review of the category mapping and of the stage glossary; switch the site to 2014–2018 cohorts.
+- Pending: human review of the category mapping and of the stage glossary.
 
 ## Pending
 - **Human validation** of the top flags and the controls (`review-export`). No precision figure exists until this is done.
