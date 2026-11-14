@@ -60,13 +60,117 @@ def _summary(df: pd.DataFrame, snapshot, min_n: int, max_month: int) -> dict:
     s = group_stats(df, snapshot, min_n, max_month)
     s.pop("curve_monthly_share_decided", None)
     by_year = {}
-    for y, g in df.groupby("filing_year"):
+    for y, g in df.groupby("filing_year", observed=True):
         gs = group_stats(g, snapshot, min_n, 36)
         by_year[str(y)] = {"n": gs["n"], "share_undecided_at_3y": gs.get("share_undecided_at_3y"),
                            "median_days_to_decision": (gs.get("time_to_decision_days") or {}).get("p50")}
     s["by_filing_year"] = by_year
-    s["category_mix"] = df["case_category"].value_counts(normalize=True).round(4).to_dict()
+    mix = df["case_category"].value_counts(normalize=True).round(4)
+    s["category_mix"] = {str(k): float(v) for k, v in mix.items() if v > 0}
     return s
+
+
+SLIM = ["filing_date", "disposal_date", "case_status", "outcome_group", "first_listing_date", "last_listing_date",
+        "next_listing_date", "case_category", "filing_year", "district_id", "district_name", "state_name"]
+CAT_COLS = ["case_status", "outcome_group", "case_category", "filing_year", "district_id", "district_name", "state_name"]
+
+
+class _NationalAcc:
+    """Memory-light national accumulator (numpy arrays per category instead of full frames)."""
+
+    def __init__(self):
+        self.parts: dict[str, dict[str, list]] = {}
+
+    def add(self, cat: str, g: pd.DataFrame) -> None:
+        from .stats import durations_events
+
+        a = self.parts.setdefault(cat, {"dur": [], "ev": [], "ttf": [], "gap": [], "out": {}, "n": 0,
+                                        "n_pending": 0, "n_decided": 0, "n_moved": 0, "excl": 0})
+        d, e, x = durations_events(g)
+        a["dur"].append(d.astype(np.int32))
+        a["ev"].append(e)
+        a["excl"] += x
+        ttf = (g["first_listing_date"] - g["filing_date"]).dt.days
+        a["ttf"].append(ttf[ttf >= 0].to_numpy(dtype=np.int32))
+        pend = g[g["case_status"] == "PENDING"]
+        gap = (pend["next_listing_date"] - pend["last_listing_date"]).dt.days
+        a["gap"].append(gap[gap >= 0].to_numpy(dtype=np.int32))
+        moved = g["outcome_group"].eq("moved")
+        a["n"] += len(g)
+        a["n_pending"] += int((g["case_status"] == "PENDING").sum())
+        a["n_decided"] += int(((g["case_status"] == "DISPOSED") & ~moved).sum())
+        a["n_moved"] += int(moved.sum())
+        disp = g[(g["case_status"] == "DISPOSED") & g["outcome_group"].notna() & ~moved]
+        for k, v in disp["outcome_group"].value_counts().items():
+            if v:
+                a["out"][str(k)] = a["out"].get(str(k), 0) + int(v)
+
+    def stats(self, min_n: int, max_month: int) -> dict:
+        from .stats import kaplan_meier, km_curve, km_quantile
+
+        res = {}
+        for cat, a in self.parts.items():
+            s = {"n": a["n"], "n_pending": a["n_pending"], "n_decided": a["n_decided"], "n_moved": a["n_moved"]}
+            if a["n"] < min_n:
+                res[cat] = {**s, "suppressed": True}
+                continue
+            times, surv = kaplan_meier(np.concatenate(a["dur"]), np.concatenate(a["ev"]))
+            c = km_curve(times, surv, max_month)
+            s.update(suppressed=False, n_excluded_bad_dates=a["excl"],
+                     time_to_decision_days={"p50": km_quantile(times, surv, 0.5), "p75": km_quantile(times, surv, 0.75),
+                                            "p90": km_quantile(times, surv, 0.9),
+                                            "max_followup": float(times[-1]) if len(times) else None},
+                     curve_monthly_share_decided=c,
+                     share_undecided_at_3y=round(1 - c[36], 4) if c[36] is not None else None)
+            n_out = sum(a["out"].values())
+            s["n_outcomes"] = n_out
+            if n_out >= min_n:
+                s["outcomes"] = {k: round(v / n_out, 4) for k, v in sorted(a["out"].items(), key=lambda kv: -kv[1])}
+            ttf = np.concatenate(a["ttf"])
+            s["days_to_first_listing"] = ({"p50": float(np.percentile(ttf, 50)), "p90": float(np.percentile(ttf, 90))}
+                                          if len(ttf) >= min_n else None)
+            gap = np.concatenate(a["gap"])
+            if len(gap) >= min_n:
+                s["next_hearing_gap_days"] = {"n": int(len(gap)), **{f"p{q}": float(np.percentile(gap, q))
+                                                                      for q in (50, 75, 90, 95)}}
+                s["pending_next_gap_over_6m_share"] = round(float((gap > 182).mean()), 4)
+            else:
+                s["next_hearing_gap_days"] = None
+                s["pending_next_gap_over_6m_share"] = None
+            s["note"] = "Pooled across states; pending cases are censored at their own last listing date."
+            res[cat] = s
+        return res
+
+
+def _load_state(files: list[Path], st: str, cfg: dict, mapping_counts: dict) -> tuple[pd.DataFrame, int]:
+    """Clean one file at a time for a state and keep only slim, categorical columns."""
+    slims, unknown = [], 0
+    for f in files:
+        cols = [c for c in COLUMNS if c in pq.read_schema(f).names]
+        raw = pd.read_parquet(f, columns=cols, filters=[("state_code", "==", st)])
+        if raw.empty:
+            continue
+        # Re-derive categories with the current rules (so rule fixes don't need a re-extract).
+        raw["case_category"] = assign_categories(raw["case_type"], raw.get("act"), raw.get("section")).to_numpy()
+        cases, _rej, _dups, _q = clean_cases(raw, cfg)
+        del raw
+        cases["outcome_group"] = cases["disposal_nature"].map(
+            {u: outcome_group(u) for u in pd.unique(cases["disposal_nature"].astype(object))})
+        cases["case_category"] = cases["case_category"].fillna("other")
+        unknown += int((cases["case_status"] == "UNKNOWN").sum())
+        for k, n in cases.groupby([cases["case_type_raw"].map(type_key), "case_category"]).size().items():
+            mapping_counts[k] = mapping_counts.get(k, 0) + int(n)
+        slim = cases[SLIM].copy()
+        del cases
+        for c in CAT_COLS:
+            slim[c] = slim[c].astype("category")
+        slims.append(slim)
+    if not slims:
+        return pd.DataFrame(), 0
+    out = pd.concat(slims, ignore_index=True)
+    for c in CAT_COLS:  # concat of differing categories falls back to object
+        out[c] = out[c].astype("category")
+    return out, unknown
 
 
 def build_site_data(extract_paths: list[str | Path], out_dir: str | Path, cfg: dict, min_n: int = 30,
@@ -77,71 +181,51 @@ def build_site_data(extract_paths: list[str | Path], out_dir: str | Path, cfg: d
         if not f.exists():
             raise FileNotFoundError(f"Extract not found: {f} (run ddl-extract first)")
     states = sorted(set().union(*[set(pq.read_table(f, columns=["state_code"]).column(0).to_pylist()) for f in files]))
-    national_parts: dict[str, list[pd.DataFrame]] = {}
+    nat = _NationalAcc()
     meta_states, mapping_counts = [], {}
     totals = {"cases": 0, "excluded_status_unknown": 0}
     years: set[str] = set()
-    example = None
     for st in states:
-        parts = [pd.read_parquet(f, columns=[c for c in COLUMNS if c in pq.read_schema(f).names],
-                                 filters=[("state_code", "==", st)]) for f in files]
-        raw = pd.concat([p for p in parts if len(p)], ignore_index=True)
-        if raw.empty:
+        cases, unknown = _load_state(files, st, cfg, mapping_counts)
+        if cases.empty:
             continue
-        # Re-derive categories with the current rules (so rule fixes don't need a re-extract).
-        raw["case_category"] = assign_categories(raw["case_type"], raw.get("act"), raw.get("section")).to_numpy()
-        cases, _rej, _dups, _q = clean_cases(raw, cfg)
-        cases["outcome_group"] = cases["disposal_nature"].map(
-            {u: outcome_group(u) for u in pd.unique(cases["disposal_nature"].astype(object))})
-        cases["case_category"] = cases["case_category"].fillna("other")
-        years.update(cases["filing_year"].dropna().unique().tolist())
+        years.update(str(y) for y in cases["filing_year"].dropna().unique().tolist())
         snapshot = _snapshot(cases)
         totals["cases"] += len(cases)
-        totals["excluded_status_unknown"] += int((cases["case_status"] == "UNKNOWN").sum())
-        for k, n in cases.groupby([cases["case_type_raw"].map(type_key), "case_category"]).size().items():
-            mapping_counts[k] = mapping_counts.get(k, 0) + int(n)
-        slim = cases[["filing_date", "disposal_date", "case_status", "outcome_group", "first_listing_date",
-                      "last_listing_date", "next_listing_date", "case_category", "filing_year"]].copy()
-        slim["snapshot"] = snapshot
-        for cat, g in slim.groupby("case_category"):
-            national_parts.setdefault(cat, []).append(g)
+        totals["excluded_status_unknown"] += unknown
+        for cat, g in cases.groupby("case_category", observed=True):
+            nat.add(str(cat), g)
 
-        state_name = cases["state_name"].mode().iat[0]
+        state_name = str(cases["state_name"].mode().iat[0])
         dist_meta, dist_summaries = [], []
-        for did, g in cases.groupby("district_id"):
-            dname = g["district_name"].mode().iat[0] if g["district_name"].notna().any() else did
-            cats = {cat: group_stats(cg, snapshot, min_n, max_month) for cat, cg in g.groupby("case_category")}
+        for did, g in cases.groupby("district_id", observed=True):
+            did = str(did)
+            dname = str(g["district_name"].mode().iat[0]) if g["district_name"].notna().any() else did
+            cats = {str(cat): group_stats(cg, snapshot, min_n, max_month)
+                    for cat, cg in g.groupby("case_category", observed=True)}
             summ = _summary(g, snapshot, min_n, max_month)
             _write(out / "districts" / f"{did}.json", {
                 "id": did, "name": dname, "state_code": st, "state_name": state_name,
-                "snapshot_date": str(snapshot.date()), "summary": summ, "categories": cats})
+                "snapshot_date": str(snapshot.date()) if pd.notna(snapshot) else None, "summary": summ, "categories": cats})
             dist_meta.append({"id": did, "name": dname, "n": int(len(g)),
                               "categories": sorted(c for c, s in cats.items() if not s.get("suppressed"))})
             dist_summaries.append({"id": did, "name": dname, "n": int(len(g)),
                                    "median_days_to_decision": (summ.get("time_to_decision_days") or {}).get("p50"),
                                    "share_undecided_at_3y": summ.get("share_undecided_at_3y"),
                                    "pending_next_gap_over_6m_share": summ.get("pending_next_gap_over_6m_share")})
-            cb = cats.get("cheque_bounce")
-            if cb and not cb.get("suppressed") and (example is None or cb["n"] > example["n"]):
-                example = {"district_id": did, "district_name": dname, "state_name": state_name,
-                           "category": "cheque_bounce", "n": cb["n"]}
-        state_cats = {cat: group_stats(cg, snapshot, min_n, max_month) for cat, cg in cases.groupby("case_category")}
+        state_cats = {str(cat): group_stats(cg, snapshot, min_n, max_month)
+                      for cat, cg in cases.groupby("case_category", observed=True)}
+        snap_s = str(snapshot.date()) if pd.notna(snapshot) else None
         _write(out / "states" / f"{st}.json", {
-            "code": st, "name": state_name, "snapshot_date": str(snapshot.date()),
+            "code": st, "name": state_name, "snapshot_date": snap_s,
             "summary": _summary(cases, snapshot, min_n, max_month), "categories": state_cats,
             "districts": sorted(dist_summaries, key=lambda d: d["name"])})
-        meta_states.append({"code": st, "name": state_name, "n": int(len(cases)), "snapshot_date": str(snapshot.date()),
+        meta_states.append({"code": st, "name": state_name, "n": int(len(cases)), "snapshot_date": snap_s,
                             "districts": sorted(dist_meta, key=lambda d: d["name"])})
         log.info("state %s %s: %d cases, %d districts", st, state_name, len(cases), len(dist_meta))
+        del cases
 
-    national = {}
-    for cat, gs in national_parts.items():
-        g = pd.concat(gs, ignore_index=True)
-        # each state's pending cases are censored at that state's own snapshot
-        stats_parts = []
-        for snap, sg in g.groupby("snapshot"):
-            stats_parts.append((snap, sg))
-        national[cat] = _national_stats(stats_parts, min_n, max_month)
+    national = nat.stats(min_n, max_month)
     _write(out / "national.json", {"categories": national})
     top_map = sorted(mapping_counts.items(), key=lambda kv: -kv[1])[:1500]
     _write(out / "category_mapping.json", [{"type": k[0], "category": k[1], "cases": n} for k, n in top_map])
@@ -160,38 +244,12 @@ def build_site_data(extract_paths: list[str | Path], out_dir: str | Path, cfg: d
         "min_n": min_n,
         "categories": CATEGORIES,
         "outcome_groups": OUTCOME_GROUPS,
-        "example": example,
+        "example": None,
         "states": sorted(meta_states, key=lambda s: s["name"]),
     }
     _write(out / "meta.json", meta)
     meta["example"] = choose_example(out)
     return meta
-
-
-def _national_stats(parts: list[tuple[pd.Timestamp, pd.DataFrame]], min_n: int, max_month: int) -> dict:
-    """National KM pools durations computed against each state's own snapshot."""
-    from .stats import durations_events, kaplan_meier, km_curve, km_quantile
-
-    durs, evs, n = [], [], 0
-    frames = []
-    for snap, g in parts:
-        d, e, _ = durations_events(g, snap)
-        durs.append(d)
-        evs.append(e)
-        n += len(g)
-        frames.append(g)
-    allg = pd.concat(frames, ignore_index=True)
-    base = group_stats(allg, max(s for s, _ in parts), min_n, max_month)  # outcomes, first listing, gaps
-    if n < min_n:
-        return base
-    times, surv = kaplan_meier(np.concatenate(durs), np.concatenate(evs))
-    base["time_to_decision_days"] = {"p50": km_quantile(times, surv, 0.5), "p75": km_quantile(times, surv, 0.75),
-                                     "p90": km_quantile(times, surv, 0.9), "max_followup": float(times[-1])}
-    c = km_curve(times, surv, max_month)
-    base["curve_monthly_share_decided"] = c
-    base["share_undecided_at_3y"] = round(1 - c[36], 4) if c[36] is not None else None
-    base["note"] = "Pooled across states; pending cases are censored at their own last listing date."
-    return base
 
 
 def choose_example(out_dir: str | Path, categories=("cheque_bounce", "motor_accident", "matrimonial")) -> dict | None:

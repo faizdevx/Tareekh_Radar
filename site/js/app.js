@@ -62,6 +62,7 @@ function renderChrome(path) {
   $("#footer").innerHTML = `<a class="brand" href="#/">${logo("#fff")}<span><div class="brand-name">${tr("brand")}</div><div class="brand-hi">${tr("brand_hi")}</div></span></a>
     <div class="fnote">${tr("footer_note")} ${years ? `(${esc(years)})` : ""}</div>
     <nav><a href="#/about">${tr("nav_about")}</a><a href="#/method">${tr("nav_method")}</a><a href="${m ? esc(m.source_url) : "#/method"}" rel="noopener">Data</a></nav>
+    <div class="footer-art">${courthouse()}</div>
     <div class="src">${m ? `Data: ${esc(m.source)}. ${esc(m.license)}` : ""}</div>`;
 }
 
@@ -143,6 +144,8 @@ async function statsFor(s, d, c) {
 /* ---------------- pages ---------------- */
 async function pageHome() {
   const m = state.meta;
+  // Optional artwork: set <meta name="cc-hero-image" content="assets/hero.webp"> in index.html.
+  const heroImg = document.querySelector('meta[name="cc-hero-image"]')?.content || "";
   const ex = m.example;
   let exHTML = "";
   if (ex) {
@@ -156,7 +159,7 @@ async function pageHome() {
   const typeCount = m.totals.categories;
   $("#main").innerHTML = `
   <section class="hero">
-    <div class="hero-art">${hero()}</div>
+    <div class="hero-art">${hero()}${heroImg ? `<img class="hero-img" src="${esc(heroImg)}" alt="" onerror="this.remove()">` : ""}</div>
     <div class="hero-copy"><div>
       <h1 class="hero-title">${tr("hero_title_1")}<br>${tr("hero_title_2")}</h1>${brush()}
       <p class="hero-sub">${tr("hero_sub")}</p>

@@ -19,6 +19,8 @@ import logging
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import yaml
 
 from ..categories import assign_categories
@@ -35,6 +37,32 @@ READ_COLUMNS = [
 ]
 EXCLUDED_SENSITIVE = ["pet_name", "def_name", "pet_adv", "def_adv", "cino", "case_no",
                       "*_muslim", "*_female", "ddl_*_judge_id", "judge_desg", "judge_position"]
+
+
+# Every column is written as text (dates are parsed during cleaning).
+_SCHEMA = pa.schema([(c, pa.string()) for c in (
+    "case_id",
+    "court_id",
+    "court_name",
+    "case_type",
+    "filing_date",
+    "disposal_date",
+    "case_status",
+    "source_reference",
+    "first_listing_date",
+    "last_listing_date",
+    "next_listing_date",
+    "current_purpose",
+    "disposal_nature",
+    "case_category",
+    "act",
+    "section",
+    "filing_year",
+    "state_code",
+    "state_name",
+    "district_id",
+    "district_name",
+)])
 
 
 def _load_key(path: Path, code_col: str, name_col: str) -> pd.Series:
@@ -77,8 +105,11 @@ def extract(
         "disp_name": _load_key(keys_dir / "disp_name_key.tab", "disp_name", "disp_name_s"),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
-    parts = []
-    n_read = 0
+    cases_path = out_dir / "cases.parquet"
+    tmp_path = out_dir / "cases.parquet.partial"
+    writer = None
+    n_read = n_kept = 0
+    names: set[str] = set()
     reader = pd.read_stata(dta_path, columns=READ_COLUMNS, convert_categoricals=False,
                            convert_dates=False, chunksize=chunksize)
     with reader:
@@ -130,19 +161,24 @@ def extract(
                 v = df[col].astype(object)
                 txt = v.astype(str).str.strip()
                 df[col] = txt.where(v.notna() & ~txt.isin(["", "nan", "NaT", "None"]), None).astype(object)
-            parts.append(df)
-            log.info("read %d rows, kept %d so far", n_read, sum(len(p) for p in parts))
-    if not parts:
+            # Stream each chunk to disk: a full-year file (e.g. 2018, ~12 GB .dta) does not fit in memory.
+            table = pa.Table.from_pandas(df, schema=_SCHEMA, preserve_index=False)
+            if writer is None:
+                writer = pq.ParquetWriter(tmp_path, _SCHEMA)
+            writer.write_table(table)
+            n_kept += len(df)
+            names.update(df["state_name"].dropna().unique().tolist())
+            log.info("read %d rows, kept %d so far", n_read, n_kept)
+    if writer is None:
         raise ValueError(f"No rows matched the filters (states={states}, districts={districts})")
-    cases = pd.concat(parts, ignore_index=True)
-    cases_path = out_dir / "cases.parquet"
-    cases.to_parquet(cases_path, index=False)
+    writer.close()
+    tmp_path.replace(cases_path)
     scope = []
     if states:
         scope.append("states=" + ",".join(states))
     if districts:
         scope.append("districts=" + ",".join(districts))
-    names = sorted(cases["state_name"].dropna().unique())
+    names = sorted(names)
     mapping = {
         "dataset": {
             "name": name or f"ddl_{dta_path.stem.replace('cases_clean_', '')}" + ("_" + "_".join(states) if states else ""),
@@ -153,7 +189,7 @@ def extract(
             "geographic_scope": "; ".join(scope) + (" | " if scope else "") + "states: " + ", ".join(names),
             "access_notes": ("Real district-court case records (one row per case) from eCourts via DDL; de-identified "
                              "by DDL. No per-hearing histories. Party/advocate names and CNR not read. "
-                             f"Rows read: {n_read}; rows kept: {len(cases)}."),
+                             f"Rows read: {n_read}; rows kept: {n_kept}."),
         },
         "cases": {},
     }

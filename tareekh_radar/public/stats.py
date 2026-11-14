@@ -95,7 +95,7 @@ def durations_events(df: pd.DataFrame, snapshot: pd.Timestamp | None = None) -> 
     f = df["filing_date"]
     d = df["disposal_date"]
     status = df["case_status"]
-    moved = df["outcome_group"].eq("moved")
+    moved = df["outcome_group"].astype(object).eq("moved")
     dur = pd.Series(np.nan, index=df.index)
     ev = pd.Series(False, index=df.index)
     dec = (status == "DISPOSED") & d.notna() & f.notna()
@@ -137,7 +137,7 @@ def group_stats(df: pd.DataFrame, snapshot: pd.Timestamp, min_n: int, max_month:
     out["n_outcomes"] = int(len(disposed))
     if len(disposed) >= min_n:
         sh = disposed["outcome_group"].value_counts(normalize=True)
-        out["outcomes"] = {k: round(float(v), 4) for k, v in sh.items()}
+        out["outcomes"] = {str(k): round(float(v), 4) for k, v in sh.items() if v > 0}
     ttf = (df["first_listing_date"] - df["filing_date"]).dt.days
     ttf = ttf[ttf >= 0]
     out["days_to_first_listing"] = quantiles(ttf, (0.5, 0.9)) if len(ttf) >= min_n else None

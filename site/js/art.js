@@ -1,5 +1,6 @@
 // Original SVG artwork for Case Clock (no third-party images).
 const R = "#c4232b", INK = "#1c1814", PAPER = "#f5ecdb", GOLD = "#e3a23b", DEEP = "#9c1820";
+const SUIT = "#1d3a39", SHIRT = "#fbf6ec", SKIN = "#e3a984", SKIN_SH = "#c48461", BAND = "#eef4f6";
 
 export const logo = (stroke = R) => `<svg viewBox="0 0 30 38" aria-hidden="true"><g fill="none" stroke="${stroke}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
 <path d="M3 2.5h24M3 35.5h24"/><path d="M6 2.5c0 9 9 11 9 16.5S6 26.5 6 35.5M24 2.5c0 9-9 11-9 16.5s9 7.5 9 16.5"/></g>
@@ -22,8 +23,8 @@ export const icons = {
   barsm: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 20V12M12 20V6M19 20V9"/></svg>`,
 };
 
-// Hero: court dome + oversized hourglass + scales, cream line art on red.
-export const hero = () => `<svg viewBox="0 0 600 440" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Illustration: an hourglass in front of a court building">
+// Hero: original blindfolded Justice figure with scales in front of a court dome, on red.
+export const hero = () => `<svg viewBox="0 0 600 440" preserveAspectRatio="xMidYMin slice" role="img" aria-label="Illustration: blindfolded Justice holding scales in front of a court building">
 <defs>
  <pattern id="dots" width="8" height="8" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="${DEEP}" opacity=".45"/></pattern>
  <linearGradient id="sand" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${GOLD}"/><stop offset="1" stop-color="#c47f1d"/></linearGradient>
@@ -42,24 +43,37 @@ export const hero = () => `<svg viewBox="0 0 600 440" preserveAspectRatio="xMidY
  <path d="M345 170h170" stroke-dasharray="4 8"/>
 </g>
 <g fill="${PAPER}" opacity=".9"><path d="M330 200h200v-6H330z"/></g>
-<!-- hourglass -->
-<g transform="translate(110 40)">
- <rect x="0" y="0" width="200" height="22" rx="4" fill="${INK}"/>
- <rect x="0" y="338" width="200" height="22" rx="4" fill="${INK}"/>
- <path d="M18 22h164c0 92-62 110-62 158s62 66 62 158H18c0-92 62-110 62-158S18 114 18 22z" fill="${PAPER}" stroke="${INK}" stroke-width="7"/>
- <path d="M44 60h112c-8 46-50 62-56 98-6-36-48-52-56-98z" fill="url(#sand)"/>
- <path d="M100 160v118" stroke="${GOLD}" stroke-width="4" stroke-dasharray="2 6" stroke-linecap="round"/>
- <path d="M34 336c10-46 44-58 66-60 22 2 56 14 66 60z" fill="url(#sand)"/>
- <rect x="10" y="22" width="10" height="316" fill="${INK}"/><rect x="180" y="22" width="10" height="316" fill="${INK}"/>
+<!-- figure: original line art of blindfolded Justice in a suit holding scales -->
+<g stroke="${INK}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+ <path d="M70 440 84 300Q90 255 140 238L200 228 260 238Q310 255 316 300L330 440Z" fill="${SUIT}"/>
+ <path d="M200 330 186 300 168 232 232 232 214 300Z" fill="${SHIRT}"/>
+ <path d="M168 232 150 262 188 268ZM232 232 250 262 212 268Z" fill="${SHIRT}"/>
+ <path d="M188 268 200 330M212 268 200 330" fill="none"/>
+ <rect x="182" y="176" width="36" height="58" fill="${SKIN}"/>
+ <path d="M184 214q16 12 32 0" fill="none" stroke="${SKIN_SH}" stroke-width="4"/>
+ <ellipse cx="160" cy="134" rx="8" ry="13" fill="${SKIN}"/>
+ <ellipse cx="200" cy="130" rx="40" ry="52" fill="${SKIN}"/>
+ <path d="M158 122Q154 70 200 68 248 70 242 120 236 96 200 94 168 96 158 122Z" fill="${INK}"/>
+ <path d="M206 138q8 14-2 18M188 168q12 5 24 0" fill="none"/>
+ <path d="M240 142q-4 26-22 36" fill="none" stroke="${SKIN_SH}" stroke-width="4"/>
+ <path d="M156 110Q200 102 244 110V136Q200 128 156 136Z" fill="${BAND}"/>
+ <path d="M158 120Q132 98 108 84 128 110 118 134 140 118 158 128Z" fill="${BAND}"/>
+ <path d="M156 128Q132 150 124 180 146 160 162 136Z" fill="${BAND}"/>
+ <circle cx="200" cy="362" r="4" fill="${GOLD}"/><circle cx="200" cy="398" r="4" fill="${GOLD}"/>
+ <path d="M296 258Q330 290 344 350 348 366 334 374L288 400 276 380 318 352Q306 312 290 290Z" fill="${SUIT}"/>
+ <ellipse cx="278" cy="392" rx="15" ry="11" fill="${SKIN}"/>
+ <path d="M84 290Q76 340 88 374 104 386 118 372L156 308 138 292Z" fill="${SUIT}"/>
+ <path d="M138 292 156 308 163 299 146 285Z" fill="${SHIRT}"/>
 </g>
-<!-- scales -->
-<g transform="translate(40 250)" stroke="${INK}" stroke-width="5" stroke-linecap="round" fill="none">
- <path d="M70 0v150M30 150h80M0 26h140"/>
- <path d="M0 26 -22 86h44zM140 26l-22 60h44z" stroke-width="3"/>
+<!-- scales held up in the raised hand -->
+<g stroke="${INK}" stroke-width="2" fill="none" stroke-linecap="round">
+ <path d="M160 292V318M98 322 80 372M98 322 116 372M218 314 200 360M218 314 236 360"/>
 </g>
-<g transform="translate(40 250)" fill="${GOLD}" stroke="${INK}" stroke-width="3">
- <path d="M-26 86h52a26 14 0 0 1-52 0z"/><path d="M114 86h52a26 14 0 0 1-52 0z"/><circle cx="70" cy="0" r="9"/>
+<path d="M98 322 218 314" stroke="${GOLD}" stroke-width="6" stroke-linecap="round"/>
+<g fill="${GOLD}" stroke="${INK}" stroke-width="2.5">
+ <path d="M74 372h48a24 11 0 0 1-48 0zM194 360h48a24 11 0 0 1-48 0z"/><circle cx="160" cy="318" r="6"/>
 </g>
+<ellipse cx="160" cy="290" rx="14" ry="12" fill="${SKIN}" stroke="${INK}" stroke-width="3"/>
 </svg>`;
 
 export const brush = () => `<svg class="brush" viewBox="0 0 400 16" preserveAspectRatio="none" aria-hidden="true"><path d="M4 11C90 4 210 2 396 6c-120 2-260 4-330 9" fill="none" stroke="${R}" stroke-width="5" stroke-linecap="round"/></svg>`;
