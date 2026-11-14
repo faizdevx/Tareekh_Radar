@@ -61,14 +61,15 @@ function go(path, params) {
 function renderChrome(path) {
   document.documentElement.lang = state.lang;
   $("#brand").innerHTML = `${logo()}<span><div class="brand-name">${tr("brand")}</div><div class="brand-hi">${tr("brand_hi")}</div></span>`;
-  const nav = [["/diary", "nav_diary"], ["/estimate", "nav_estimate"], ["/check", "nav_check"], ["/district", "nav_districts"], ["/help", "nav_help"], ["/method", "nav_method"], ["/about", "nav_about"]];
+  const nav = [["/diary", "nav_diary"], ["/check", "nav_check"], ["/estimate", "nav_estimate"], ["/district", "nav_districts"], ["/help", "nav_help"]];
   const helpPaths = ["/help", "/find", "/decode", "/lawyer", "/cost", "/rights", "/deadlines"];
   const isActive = (p) => path === p || (p === "/help" && helpPaths.includes(path)) || (p === "/diary" && path === "/case");
   $("#main-nav").innerHTML = nav.map(([p, k]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${tr(k)}</a>`).join("");
   $("#lang-toggle").innerHTML = state.lang === "en" ? "<b>EN</b> / हिंदी" : "EN / <b>हिंदी</b>";
-  const bn = [["/", "nav_home", icons.home], ["/diary", "nav_diary", icons.book], ["/check", "nav_check_short", icons.calsm], ["/district", "nav_districts", icons.barsm], ["/help", "nav_help", icons.helpsm]];
+  const bn = [["/", "nav_home", icons.home], ["/diary", "nav_diary", icons.book], ["/check", "nav_check_short", icons.calsm], ["/help", "nav_help", icons.helpsm]];
   $("#bottom-nav").innerHTML = bn.map(([p, k, ic]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${ic}<span>${tr(k)}</span></a>`).join("");
   $("#disclaimer").textContent = tr("disclaimer");
+  const fab = $("#fab-say"); if (fab) { fab.innerHTML = icons.speaker; fab.setAttribute("aria-label", tr("voice_read_page")); fab.title = tr("voice_read_page"); }
   paintChip();
   const m = state.meta;
   const years = m ? yearSpan(m.filing_years) : "";
@@ -171,10 +172,11 @@ async function pageHome() {
   }
   const typeCount = m.totals.categories;
   $("#main").innerHTML = `
+  <section class="wrap home-tiles"><h1 class="tiles-title">${tr("tiles_title")}</h1>${bigTiles()}</section>
   <section class="hero">
     <div class="hero-art">${hero()}${heroImg ? `<img class="hero-img" src="${esc(heroImg)}" alt="" onerror="this.remove()">` : ""}</div>
     <div class="hero-copy"><div>
-      <h1 class="hero-title">${tr("hero_title_1")}<br>${tr("hero_title_2")}</h1>${brush()}
+      <h2 class="hero-title">${tr("hero_title_1")}<br>${tr("hero_title_2")}</h2>${brush()}
       <p class="hero-sub">${tr("hero_sub")}</p>
       <a class="btn btn-dark" href="#/check">${tr("cta_check")} <span class="arrow">→</span></a></div>
       <div class="vignettes"><div class="vignette">${vignetteHourglass()}</div><div class="vignette red">${vignetteScales()}</div><div class="vignette">${vignettePen()}</div></div>
@@ -182,7 +184,6 @@ async function pageHome() {
   </section>
   <div class="scallop"></div>
   <section class="wrap">
-  <div class="tools-sec"><h2 class="section-title">${tr("tools_title")}</h2><p class="note">${tr("tools_sub")}</p>${toolsGrid()}</div>
   <div class="band"><div class="band-art">${courthouse()}</div>
     <div><div class="big">${fmtN(m.totals.cases)}</div><div class="lbl">${tr("band_cases")} (${tr("band_years")} ${esc(yearSpan(m.filing_years))})</div></div>
     <div><div class="big">${fmtN(m.totals.districts)}</div><div class="lbl">${tr("band_districts")}</div></div>
@@ -827,7 +828,7 @@ async function pageCase(params) {
         ${e.purpose ? `<b>${esc(e.purpose)}</b>` : ""}${e.adjBy !== "none" ? ` <span class="badge">${tr("adj_short")}: ${tr("adj_" + e.adjBy)}</span>` : ""}
         ${e.happened ? `<p>${esc(e.happened)}</p>` : ""}${e.next ? `<div class="note">${tr("f_next")}: ${fmtDate(e.next)}</div>` : ""}</div>
         <button class="link-btn no-print" data-del="${esc(e.id)}" type="button">${tr("diary_del_entry")}</button></li>`).join("")}</ol>` : `<p class="note">${tr("diary_no_entries")}</p>`}</div>
-    ${docsHTML(c)}${expensesHTML(c)}<div id="settle-slot"></div>${shareHTML(c)}
+    ${fold("docc", tr("docs_title"), docsHTML(c))}${fold("rupee", tr("exp_title"), expensesHTML(c))}<div id="settle-slot"></div>${fold("book", tr("share_title"), shareHTML(c))}
     <details class="card no-print" style="margin-top:18px"><summary>${tr("diary_edit")}</summary>
       <form id="editc">${caseFormHTML(c)}<div class="form-actions"><button class="btn btn-red">${tr("f_save")}</button></div><ul class="errors" id="errs2"></ul></form></details>
     <div class="form-actions no-print"><a class="btn btn-dark" href="#/summary?id=${encodeURIComponent(c.id)}">${tr("sum_btn")}</a>
@@ -861,7 +862,7 @@ async function pageCase(params) {
   });
   wireCaseExtras(c);
   if (params.get("log")) setTimeout(() => { $("#loge")?.scrollIntoView({ block: "start" }); $("#e-happened")?.focus(); }, 50);
-  if (c.s && c.d && c.c) statsFor(c.s, c.d, c.c).then(({ stats }) => { const el = $("#settle-slot"); if (el && stats) el.innerHTML = settleHTML(c.c, stats); });
+  if (c.s && c.d && c.c) statsFor(c.s, c.d, c.c).then(({ stats }) => { const el = $("#settle-slot"); if (el && stats) el.innerHTML = fold("scalesc", tr("set_title"), settleHTML(c.c, stats)); });
   $("#delc").addEventListener("click", () => {
     if (!confirm(tr("diary_del_case_q"))) return;
     diary.cases = diary.cases.filter((x) => x.id !== c.id); persist(); go("/diary");
@@ -1228,6 +1229,17 @@ async function sharedWithMeHTML() {
   } catch (e) { console.warn("shared list failed", e?.code || e); return ""; }
 }
 
+
+/* ---------------- big picture tiles (home) ---------------- */
+const TILES = [["/diary", "tile_diary", "book", 0], ["/check", "tile_check", "calsm", 1], ["/estimate", "tile_estimate", "hg", 2],
+  ["/decode", "tile_decode", "docc", 3], ["/deadlines", "tile_deadlines", "clockc", 0], ["/rights", "tile_rights", "scalesc", 2],
+  ["/lawyer", "tile_lawyer", "chat", 3], ["/cost", "tile_cost", "rupee", 1], ["/find", "tile_find", "search", 4], ["/district", "tile_district", "barsm", 4]];
+function bigTiles() {
+  return `<div class="big-tiles">${TILES.map(([p, k, ic, c]) => `<a class="tile c${c}" href="#${p}"><span class="tile-ic">${icons[ic]}</span><span class="tile-t">${tr(k)}</span></a>`).join("")}</div>`;
+}
+/** Wrap a section in a one-tap fold (keeps every feature, shows less at once). */
+const fold = (icon, title, inner, open = false) => inner ? `<details class="fold no-print-fold" ${open ? "open" : ""}><summary><span class="fold-ic">${icons[icon] || ""}</span><span>${title}</span></summary><div class="fold-body">${inner}</div></details>` : "";
+
 /* ---------------- router ---------------- */
 async function render() {
   const { path, params } = parseHash();
@@ -1248,6 +1260,17 @@ async function render() {
 }
 
 state.lang = loadLang();
+{
+  const fab = $("#fab-say");
+  if (fab && canSpeak()) {
+    fab.hidden = false;
+    fab.addEventListener("click", async () => {
+      if (speechSynthesis.speaking) { speechSynthesis.cancel(); return; }
+      const text = ($("#main")?.innerText || "").replace(/[→↗☎←]/g, " ").replace(/\s+/g, " ").slice(0, 3500);
+      if (!(await speak(text, state.lang))) alert(tr("voice_no_hi"));
+    });
+  }
+}
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 import("./cloud.js").then((m) => { sync.cloud = m; m.watch(onUser); }).catch((e) => { sync.off = true; console.warn("cloud unavailable", e); });
 $("#lang-toggle").addEventListener("click", () => { state.lang = state.lang === "en" ? "hi" : "en"; saveLang(state.lang); render(); });
