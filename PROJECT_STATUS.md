@@ -35,7 +35,8 @@ _Last updated: 2026-11-14_
 - **Help tools** added (`site/js/help.js`): CNR finder and format check, order-sheet stage decoder (21 stages, EN/HI; matches 95% of pending cases' recorded stage text, using `purposes.json` built from real records), questions for your lawyer by stage (print / WhatsApp / copy), cost-of-delay estimate (DAKSH 2015-16 per-day costs, editable), free legal aid (LSA Act s.12) and statutory time limits with real district medians, and a "stuck meter" plus tailored next steps on the delay check. Legal references were checked against statutes, NALSA and eCourts pages.
 - GitHub Pages enabled: https://faizdevx.github.io/Tareekh_Radar/
 - Tests: 53 pytest, 15 node.
-- Pending: human review of the category mapping and of the stage glossary.
+- **Case diary + reminders + deadline calculator** (`site/js/diary.js`): local-only storage (no login by decision: no server holds anyone's case data), import sanitised as a trust boundary, .ics reminders, printable summary, stuck check against real data; 12 statutory deadlines verified against the Limitation Act, NI Act, CPC, MV Act, CPA 2019 and RBI. Tests: 21 node.
+- Pending: human review of the category mapping, the stage glossary and the deadline list.
 
 ## Pending
 - **Human validation** of the top flags and the controls (`review-export`). No precision figure exists until this is done.

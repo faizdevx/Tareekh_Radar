@@ -197,3 +197,46 @@ export function nextSteps(res, category) {
   steps.push("ns_lawyer", "ns_aid", "ns_cost");
   return steps;
 }
+
+/* ---------------- deadline calculator ---------------- */
+
+// Checked against the statutes (Limitation Act 1963, NI Act 1881, CPC, MV Act, CPA 2019) and the RBI cheque-validity circular.
+// steps are applied in order to the start date. General information, not legal advice.
+export const DEADLINES = [
+  { key: "cheque_present", steps: [{ months: 3 }], law: "RBI circular (from 1 April 2012); NI Act s.138(a)",
+    en: { t: "Cheque bounce 1: present the cheque to the bank", from: "Date written on the cheque" },
+    hi: { t: "चेक बाउंस 1: चेक बैंक में जमा करें", from: "चेक पर लिखी तारीख" } },
+  { key: "cheque_notice", steps: [{ days: 30 }], law: "NI Act s.138(b)",
+    en: { t: "Cheque bounce 2: send the legal demand notice", from: "Date you received the bank's return memo" },
+    hi: { t: "चेक बाउंस 2: कानूनी माँग नोटिस भेजें", from: "बैंक का रिटर्न मेमो मिलने की तारीख" } },
+  { key: "cheque_pay", steps: [{ days: 15 }], law: "NI Act s.138(c)",
+    en: { t: "Cheque bounce 3: last day for the drawer to pay", from: "Date the drawer received your notice" },
+    hi: { t: "चेक बाउंस 3: चेक देने वाले के भुगतान का आख़िरी दिन", from: "चेक देने वाले को नोटिस मिलने की तारीख" } },
+  { key: "cheque_complaint", steps: [{ days: 16 }, { months: 1 }], law: "NI Act s.142(1)(b)",
+    en: { t: "Cheque bounce 4: file the complaint in court (if not paid)", from: "Date the drawer received your notice" },
+    hi: { t: "चेक बाउंस 4: अदालत में शिकायत दाख़िल करें (भुगतान न होने पर)", from: "चेक देने वाले को नोटिस मिलने की तारीख" } },
+  { key: "ws", steps: [{ days: 30 }], law: "CPC Order VIII Rule 1",
+    en: { t: "Civil suit: file the written statement (defendant)", from: "Date the summons was served on you", note: "The court may extend this up to 90 days for reasons; in commercial suits 120 days is a hard limit." },
+    hi: { t: "दीवानी वाद: लिखित कथन दाख़िल करें (प्रतिवादी)", from: "आपको समन तामील होने की तारीख", note: "अदालत कारण दर्ज कर 90 दिन तक बढ़ा सकती है; वाणिज्यिक वादों में 120 दिन की कड़ी सीमा है।" } },
+  { key: "civil_appeal", steps: [{ days: 30 }], law: "Limitation Act Art. 116(b)", appeal: true,
+    en: { t: "Civil appeal to the District Court", from: "Date of the decree or order" },
+    hi: { t: "ज़िला अदालत में दीवानी अपील", from: "डिक्री या आदेश की तारीख" } },
+  { key: "civil_appeal_hc", steps: [{ days: 90 }], law: "Limitation Act Art. 116(a)", appeal: true,
+    en: { t: "Civil appeal to the High Court", from: "Date of the decree or order" },
+    hi: { t: "उच्च न्यायालय में दीवानी अपील", from: "डिक्री या आदेश की तारीख" } },
+  { key: "crim_appeal", steps: [{ days: 30 }], law: "Limitation Act Art. 115(b)(ii)", appeal: true,
+    en: { t: "Criminal appeal against conviction to the Sessions Court", from: "Date of the sentence or order" },
+    hi: { t: "दोषसिद्धि के विरुद्ध सत्र न्यायालय में आपराधिक अपील", from: "सज़ा या आदेश की तारीख" } },
+  { key: "crim_appeal_hc", steps: [{ days: 60 }], law: "Limitation Act Art. 115(b)(i)", appeal: true,
+    en: { t: "Criminal appeal against conviction to the High Court", from: "Date of the sentence or order" },
+    hi: { t: "दोषसिद्धि के विरुद्ध उच्च न्यायालय में आपराधिक अपील", from: "सज़ा या आदेश की तारीख" } },
+  { key: "revision", steps: [{ days: 90 }], law: "Limitation Act Art. 131", appeal: true,
+    en: { t: "Revision petition (civil or criminal)", from: "Date of the decree, order or sentence" },
+    hi: { t: "पुनरीक्षण याचिका (दीवानी या आपराधिक)", from: "डिक्री, आदेश या सज़ा की तारीख" } },
+  { key: "mact", steps: [{ months: 6 }], law: "Motor Vehicles Act s.166(3) (in force from 1 April 2022)",
+    en: { t: "Motor accident compensation claim", from: "Date of the accident", note: "This limit has been challenged in courts; file as early as possible." },
+    hi: { t: "मोटर दुर्घटना मुआवज़ा दावा", from: "दुर्घटना की तारीख", note: "इस सीमा को अदालतों में चुनौती दी गई है; जितनी जल्दी हो सके दावा करें।" } },
+  { key: "consumer", steps: [{ years: 2 }], law: "Consumer Protection Act 2019 s.69",
+    en: { t: "Consumer complaint", from: "Date the problem (cause of action) arose" },
+    hi: { t: "उपभोक्ता शिकायत", from: "समस्या (वाद-कारण) उत्पन्न होने की तारीख" } },
+];

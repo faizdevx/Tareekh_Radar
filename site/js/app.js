@@ -2,7 +2,9 @@ import { t } from "./i18n.js";
 import { icons, logo, hero, brush, vignetteScales, vignetteHourglass, vignettePen, courthouse } from "./art.js";
 import { pickStats, checkCase, formatDuration, formatHeadline, pct, shareDecidedAt, MONTH_DAYS } from "./logic.js";
 import { STAGES, decodePurpose, STAGE_GROUPS, GROUP_LABEL, questionsFor, QUESTIONS, parseCNR, DAKSH, CRIMINAL_CATS,
-  costEstimate, approxPercentile, nextSteps } from "./help.js";
+  costEstimate, approxPercentile, nextSteps, DEADLINES } from "./help.js";
+import { loadDiary, saveDiary, sanitizeDiary, newId, sortedEntries, caseSummary, daysBetween, todayISO, buildICS, download,
+  applySteps, ADJ_BY } from "./diary.js";
 
 const OUTCOME_COLORS = {
   compromise: "#4b8a3c", lok_adalat: "#8fb35d", allowed: "#2f6f8f", dismissed: "#b8ad9e", withdrawn: "#ddd3c4",
@@ -56,12 +58,12 @@ function go(path, params) {
 function renderChrome(path) {
   document.documentElement.lang = state.lang;
   $("#brand").innerHTML = `${logo()}<span><div class="brand-name">${tr("brand")}</div><div class="brand-hi">${tr("brand_hi")}</div></span>`;
-  const nav = [["/estimate", "nav_estimate"], ["/check", "nav_check"], ["/district", "nav_districts"], ["/help", "nav_help"], ["/method", "nav_method"], ["/about", "nav_about"]];
-  const helpPaths = ["/help", "/find", "/decode", "/lawyer", "/cost", "/rights"];
-  const isActive = (p) => path === p || (p === "/help" && helpPaths.includes(path));
+  const nav = [["/diary", "nav_diary"], ["/estimate", "nav_estimate"], ["/check", "nav_check"], ["/district", "nav_districts"], ["/help", "nav_help"], ["/method", "nav_method"], ["/about", "nav_about"]];
+  const helpPaths = ["/help", "/find", "/decode", "/lawyer", "/cost", "/rights", "/deadlines"];
+  const isActive = (p) => path === p || (p === "/help" && helpPaths.includes(path)) || (p === "/diary" && path === "/case");
   $("#main-nav").innerHTML = nav.map(([p, k]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${tr(k)}</a>`).join("");
   $("#lang-toggle").innerHTML = state.lang === "en" ? "<b>EN</b> / हिंदी" : "EN / <b>हिंदी</b>";
-  const bn = [["/", "nav_home", icons.home], ["/estimate", "nav_estimate", icons.hg], ["/check", "nav_check_short", icons.calsm], ["/district", "nav_districts", icons.barsm], ["/help", "nav_help", icons.helpsm]];
+  const bn = [["/", "nav_home", icons.home], ["/diary", "nav_diary", icons.book], ["/check", "nav_check_short", icons.calsm], ["/district", "nav_districts", icons.barsm], ["/help", "nav_help", icons.helpsm]];
   $("#bottom-nav").innerHTML = bn.map(([p, k, ic]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${ic}<span>${tr(k)}</span></a>`).join("");
   $("#disclaimer").textContent = tr("disclaimer");
   const m = state.meta;
@@ -367,8 +369,8 @@ function pageAbout() {
 
 
 /* ---------------- help tools ---------------- */
-const TOOLS = [["/check", "tool_check", "calendar"], ["/find", "tool_find", "globe"], ["/decode", "tool_decode", "doc"],
-  ["/lawyer", "tool_lawyer", "scales"], ["/cost", "tool_cost", "clock"], ["/rights", "tool_rights", "building"]];
+const TOOLS = [["/diary", "tool_diary", "cal"], ["/deadlines", "tool_deadline", "clock"], ["/check", "tool_check", "calendar"], ["/find", "tool_find", "globe"], ["/decode", "tool_decode", "doc"],
+  ["/lawyer", "tool_lawyer", "scales"], ["/cost", "tool_cost", "layers"], ["/rights", "tool_rights", "building"]];
 function toolsGrid() {
   return `<div class="tools">${TOOLS.map(([p, k, ic]) => `<a class="tool" href="#${p}"><span class="tool-ic">${icons[ic]}</span><div><h3>${tr(k + "_t")}</h3><p>${tr(k + "_s")}</p></div><span class="go">→</span></a>`).join("")}</div>`;
 }
@@ -567,6 +569,202 @@ async function pageRights(params) {
     </tbody></table></div>${(res[2].stats?.time_to_decision_days?.p50 ?? 0) > 182 || (res[2].stats && res[2].stats.time_to_decision_days?.p50 == null) ? `<p class="note warn">${esc(tr("bail_note"))}</p>` : ""}<p class="note">${dataYearsNote()}</p>`;
 }
 
+
+/* ---------------- my case diary (stored only in this browser) ---------------- */
+let diary = null;
+const D = () => (diary ??= loadDiary());
+function persist() { if (!saveDiary(diary)) alert(tr("diary_save_fail")); }
+const fmtDate = (iso) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString(state.lang === "hi" ? "hi-IN" : "en-IN",
+  { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "–");
+function dueText(next) {
+  if (!next) return tr("diary_no_next");
+  const n = daysBetween(todayISO(), next);
+  return n < 0 ? tr("diary_passed", { d: fmtDate(next) }) : n === 0 ? tr("diary_today") : tr("diary_in_days", { n, d: fmtDate(next) });
+}
+function districtName(c) {
+  const st = state.meta.states.find((x) => x.code === c.s);
+  return st?.districts.find((x) => x.id === c.d)?.name || "";
+}
+const caseMeta = (c) => [c.cnr, c.c ? catName(c.c) : "", districtName(c), c.court].filter(Boolean).join(" · ");
+
+function caseFormHTML(c = {}) {
+  return `<div class="form-grid">
+      <div class="field"><label for="c-label">${tr("f_label")}</label><input class="text" id="c-label" maxlength="120" value="${esc(c.label || "")}" required></div>
+      <div class="field"><label for="c-cnr">${tr("f_cnr")}</label><input class="text" id="c-cnr" maxlength="24" value="${esc(c.cnr || "")}" autocomplete="off" spellcheck="false" autocapitalize="characters"></div>
+      <div class="field"><label for="c-filed">${tr("f_filed")}</label><input type="date" id="c-filed" value="${esc(c.filed || "")}"></div></div>
+    <div style="margin-top:14px">${selectorHTML({ s: c.s, d: c.d, c: c.c })}</div>
+    <div class="field" style="margin-top:14px"><label for="c-court">${tr("f_court")}</label><input class="text" id="c-court" maxlength="160" value="${esc(c.court || "")}"></div>`;
+}
+/** Read and validate the case form; returns [fields, errors]. */
+function readCaseForm() {
+  const v = { label: $("#c-label").value.trim(), cnr: $("#c-cnr").value.trim(), filed: $("#c-filed").value, court: $("#c-court").value.trim(), ...readSel() };
+  const errs = [];
+  if (!v.label) errs.push(tr("err_label"));
+  if (v.cnr) { const r = parseCNR(v.cnr); if (r.ok) v.cnr = r.value; else errs.push(tr("err_cnr")); }
+  if (v.filed && v.filed > todayISO()) errs.push(tr("err_future"));
+  return [{ label: v.label, cnr: v.cnr.toUpperCase(), filed: v.filed, court: v.court, s: v.s, d: v.d, c: v.c }, errs];
+}
+
+function pageDiary() {
+  const cases = [...D().cases].sort((a, b) => (caseSummary(a).next || "9999").localeCompare(caseSummary(b).next || "9999"));
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("diary_title"), "#/")}
+    <p class="lead">${tr("diary_intro")}</p>
+    <div class="notice">${tr("diary_private")}</div>
+    ${cases.length ? `<div class="case-list">${cases.map((c) => {
+      const s = caseSummary(c); const n = s.next ? daysBetween(todayISO(), s.next) : null;
+      return `<a class="case-card ${n != null && n < 0 ? "overdue" : n != null && n <= 7 ? "soon" : ""}" href="#/case?id=${encodeURIComponent(c.id)}">
+        <div><h3>${esc(c.label)}</h3><div class="note">${esc(caseMeta(c))}</div></div>
+        <div class="due"><b>${esc(dueText(s.next))}</b>${s.purpose ? `<span class="note">${esc(s.purpose)}</span>` : ""}</div><span class="go">→</span></a>`;
+    }).join("")}</div>` : `<div class="card empty"><p>${tr("diary_empty")}</p></div>`}
+    <details class="card add-case" ${cases.length ? "" : "open"}><summary>${tr("diary_add")}</summary>
+      <form id="addc">${caseFormHTML()}<div class="form-actions"><button class="btn btn-red">${tr("f_save")}</button></div><ul class="errors" id="errs"></ul></form></details>
+    <div class="form-actions"><button class="btn btn-ghost" id="exp" type="button" ${cases.length ? "" : "disabled"}>${tr("diary_export")}</button>
+      <label class="btn btn-ghost" for="imp">${tr("diary_import")}</label><input type="file" id="imp" accept="application/json,.json" class="sr-only"></div>
+    <p class="note">${tr("diary_backup_note")}</p></section>`;
+  wireSelectors($("#main"));
+  $("#addc").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const [v, errs] = readCaseForm();
+    if (errs.length) { $("#errs").innerHTML = errs.map((x) => `<li>${x}</li>`).join(""); return; }
+    const c = { id: newId(), ...v, entries: [] };
+    D().cases.push(c); persist(); go("/case", { id: c.id });
+  });
+  $("#exp").addEventListener("click", () => download(`case-clock-diary-${todayISO()}.json`, JSON.stringify(D(), null, 1), "application/json"));
+  $("#imp").addEventListener("change", async (e) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    let data = null;
+    try { data = f.size < 5e6 ? sanitizeDiary(JSON.parse(await f.text())) : null; } catch (_) { data = null; }
+    if (!data || !data.cases.length) { alert(tr("diary_import_bad")); return; }
+    if (!confirm(tr("diary_import_confirm", { n: data.cases.length }))) return;
+    const byId = new Map(D().cases.map((c) => [c.id, c]));
+    for (const c of data.cases) byId.set(c.id, c);
+    diary.cases = [...byId.values()]; persist(); render();
+  });
+}
+
+async function pageCase(params) {
+  const c = D().cases.find((x) => x.id === params.get("id"));
+  if (!c) { $("#main").innerHTML = `<section class="wrap page">${backHead(tr("diary_title"), "#/diary")}<p>${tr("diary_notfound")}</p></section>`; return; }
+  const s = caseSummary(c);
+  const stage = decodePurpose(s.purpose);
+  const pp = await purposes();
+  const ages = c.filed ? formatDuration(daysBetween(c.filed, todayISO()), state.lang) : "–";
+  const entries = sortedEntries(c).reverse();
+  $("#main").innerHTML = `<section class="wrap page">${backHead(esc(c.label), "#/diary")}
+    <div class="crumb">${esc(caseMeta(c)) || tr("diary_add_details")}${c.filed ? ` · ${tr("filing_date")}: ${fmtDate(c.filed)}` : ""}</div>
+    <div class="grid-2 even">
+      <div class="card next-card"><h2>${tr("diary_next")}</h2>
+        <div class="next-date">${s.next ? fmtDate(s.next) : "–"}</div><div class="due-line">${esc(dueText(s.next))}</div>
+        ${s.purpose ? `<p><b>${esc(s.purpose)}</b>${stage ? ` → ${esc(stageText(stage).t)}: ${esc(stageText(stage).m)}` : ""}</p>` : ""}
+        <div class="form-actions no-print">
+          ${s.next ? `<button class="btn btn-red" id="ics" type="button">${tr("diary_add_ics")}</button>` : ""}
+          <a class="btn btn-dark" href="#/lawyer${stage && stage.group !== "any" ? `?g=${stage.group}` : ""}">${tr("ns_lawyer")}</a></div></div>
+      <div class="card"><h2>${tr("diary_stats")}</h2>
+        <div class="two-stats"><div class="statbox"><div class="k">${tr("diary_hearings")}</div><div class="v">${fmtN(s.hearings)}</div></div>
+          <div class="statbox"><div class="k">${tr("diary_age")}</div><div class="v" style="font-size:26px">${esc(ages)}</div></div></div>
+        <div class="k">${tr("diary_adj")}</div>
+        <ul class="adj">${["mine", "other", "court", "unknown"].map((k) => `<li><span>${tr("adj_" + k)}</span><b>${fmtN(s.adj[k])}</b></li>`).join("")}</ul></div>
+    </div>
+    <div id="stuck"></div>
+    <div class="card no-print" style="margin-top:18px"><h2>${tr("diary_log")}</h2>
+      <form id="loge"><div class="form-grid">
+        <div class="field"><label for="e-date">${tr("f_hdate")}</label><input type="date" id="e-date" value="${todayISO()}" max="${todayISO()}" required></div>
+        <div class="field"><label for="e-next">${tr("f_next")}</label><input type="date" id="e-next"></div>
+        <div class="field"><label for="e-adj">${tr("f_adj")}</label><select id="e-adj">${ADJ_BY.map((k) => `<option value="${k}">${tr("adj_" + k)}</option>`).join("")}</select></div></div>
+        <div class="field" style="margin-top:14px"><label for="e-purpose">${tr("f_purpose")}</label><input class="text" id="e-purpose" maxlength="200" list="e-plist" autocomplete="off">
+          <datalist id="e-plist">${(pp?.purposes || []).slice(0, 80).map((r) => `<option value="${esc(r.text)}">`).join("")}</datalist></div>
+        <div class="field" style="margin-top:14px"><label for="e-happened">${tr("f_happened")}</label><textarea id="e-happened" rows="3" maxlength="2000"></textarea></div>
+        <div class="form-actions"><button class="btn btn-red">${tr("f_log_save")}</button></div><ul class="errors" id="errs"></ul></form></div>
+    <div class="card" style="margin-top:18px"><h2>${tr("diary_timeline")}</h2>
+      ${entries.length ? `<ol class="timeline">${entries.map((e) => `<li><div class="t-date">${fmtDate(e.date)}</div><div class="t-body">
+        ${e.purpose ? `<b>${esc(e.purpose)}</b>` : ""}${e.adjBy !== "none" ? ` <span class="badge">${tr("adj_short")}: ${tr("adj_" + e.adjBy)}</span>` : ""}
+        ${e.happened ? `<p>${esc(e.happened)}</p>` : ""}${e.next ? `<div class="note">${tr("f_next")}: ${fmtDate(e.next)}</div>` : ""}</div>
+        <button class="link-btn no-print" data-del="${esc(e.id)}" type="button">${tr("diary_del_entry")}</button></li>`).join("")}</ol>` : `<p class="note">${tr("diary_no_entries")}</p>`}</div>
+    <details class="card no-print" style="margin-top:18px"><summary>${tr("diary_edit")}</summary>
+      <form id="editc">${caseFormHTML(c)}<div class="form-actions"><button class="btn btn-red">${tr("f_save")}</button></div><ul class="errors" id="errs2"></ul></form></details>
+    <div class="form-actions no-print"><button class="btn btn-dark" id="print" type="button">${tr("diary_print")}</button>
+      <button class="btn btn-ghost danger" id="delc" type="button">${tr("diary_del_case")}</button></div>
+    <p class="note">${tr("diary_private")}</p></section>`;
+  wireSelectors($("#editc"));
+
+  $("#ics")?.addEventListener("click", () => download(`hearing-${s.next}.ics`, buildICS({
+    uid: `${c.id}-${s.next}`, date: s.next, title: tr("ics_title", { label: c.label }),
+    description: [s.purpose, stage ? stageText(stage).t : "", c.cnr && `CNR ${c.cnr}`, c.court, tr("ics_carry")].filter(Boolean).join("\n"),
+  }), "text/calendar"));
+  $("#loge").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = { id: newId(), date: $("#e-date").value, next: $("#e-next").value, adjBy: $("#e-adj").value,
+      purpose: $("#e-purpose").value.trim(), happened: $("#e-happened").value.trim() };
+    const errs = [];
+    if (!v.date) errs.push(tr("err_last")); else if (v.date > todayISO()) errs.push(tr("err_future"));
+    if (v.next && v.date && v.next < v.date) errs.push(tr("err_next_before"));
+    if (errs.length) { $("#errs").innerHTML = errs.map((x) => `<li>${x}</li>`).join(""); return; }
+    c.entries.push(v); persist(); render();
+  });
+  $("#main").querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => {
+    if (!confirm(tr("diary_del_entry_q"))) return;
+    c.entries = c.entries.filter((x) => x.id !== b.dataset.del); persist(); render();
+  }));
+  $("#editc").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const [v, errs] = readCaseForm();
+    if (errs.length) { $("#errs2").innerHTML = errs.map((x) => `<li>${x}</li>`).join(""); return; }
+    Object.assign(c, v); persist(); render();
+  });
+  $("#print").addEventListener("click", () => window.print());
+  $("#delc").addEventListener("click", () => {
+    if (!confirm(tr("diary_del_case_q"))) return;
+    diary.cases = diary.cases.filter((x) => x.id !== c.id); persist(); go("/diary");
+  });
+
+  // Compare with real cases once the case has enough details.
+  if (!(c.s && c.d && c.c && c.filed && s.last)) { $("#stuck").innerHTML = `<p class="note" style="margin-top:14px">${tr("diary_check_need")}</p>`; return; }
+  const { stats } = await statsFor(c.s, c.d, c.c);
+  const res = checkCase({ filing: c.filed, last: s.last, next: s.next || null }, stats, new Date(todayISO() + "T00:00:00Z"));
+  if (res.errors.length || !stats) return;
+  const vText = { longer: tr("v_longer"), somewhat: tr("v_somewhat"), usual: tr("v_usual"), insufficient: tr("v_insufficient") }[res.verdict];
+  $("#stuck").innerHTML = `<div class="verdict ${res.verdict}" style="margin-top:18px">${icons.hourglass}<span>${esc(vText)}</span></div>${stuckMeter(res, stats)}
+    <ul class="links no-print" style="margin-top:14px">${nextSteps(res, c.c).map((k) => `<li><a href="${stepHref(k, c, c.c)}">${STEP_ICONS[k] || icons.doc}${esc(tr(k))}<span class="go">→</span></a></li>`).join("")}</ul>`;
+}
+
+function pageDeadlines(params) {
+  const k = DEADLINES.some((x) => x.key === params.get("k")) ? params.get("k") : "";
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(params.get("from") || "") ? params.get("from") : "";
+  const dl = (x) => x[state.lang] || x.en;
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("dl_title"))}
+    <p class="lead">${tr("dl_intro")}</p>
+    <form id="f"><div class="form-grid">
+      <div class="field" style="grid-column: span 2"><label for="dl-k">${tr("dl_what")}</label><select id="dl-k"><option value="">${tr("dl_pick")}</option>
+        ${DEADLINES.map((x) => `<option value="${x.key}" ${x.key === k ? "selected" : ""}>${esc(dl(x).t)}</option>`).join("")}</select></div>
+      <div class="field"><label for="dl-from" id="dl-from-l">${k ? esc(dl(DEADLINES.find((x) => x.key === k)).from) : tr("dl_from")}</label><input type="date" id="dl-from" value="${from}"></div></div>
+      <div class="form-actions"><button class="btn btn-red">${tr("dl_go")} <span class="arrow">→</span></button></div><ul class="errors" id="errs"></ul></form>
+    <div id="out" class="result"></div>
+    <div class="card" style="margin-top:22px"><h2>${tr("dl_rules")}</h2><ul class="plain">${["dl_rule_1", "dl_rule_2", "dl_rule_3", "dl_rule_4"].map((x) => `<li>${esc(tr(x))}</li>`).join("")}</ul></div>
+    <p class="note">${tr("not_advice")}</p></section>`;
+  $("#dl-k").addEventListener("change", (e) => { const x = DEADLINES.find((d) => d.key === e.target.value); $("#dl-from-l").textContent = x ? dl(x).from : tr("dl_from"); });
+  $("#f").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = { k: $("#dl-k").value, from: $("#dl-from").value };
+    if (!v.k || !v.from) { $("#errs").innerHTML = `<li>${tr("dl_err")}</li>`; return; }
+    go("/deadlines", v);
+  });
+  if (!(k && from)) return;
+  const x = DEADLINES.find((d) => d.key === k);
+  const last = applySteps(from, x.steps);
+  const left = daysBetween(todayISO(), last);
+  const weekday = new Date(last + "T00:00:00Z").toLocaleDateString(state.lang === "hi" ? "hi-IN" : "en-IN", { weekday: "long", timeZone: "UTC" });
+  $("#out").innerHTML = `<div class="card cost ${left < 0 ? "late" : ""}"><div class="kicker">${esc(dl(x).t)}</div>
+    <div class="cost-sub">${tr("dl_last")}</div><div class="cost-big">${fmtDate(last)}</div><div class="due-line">${esc(weekday)} · ${esc(
+      left < 0 ? tr("dl_over", { n: -left }) : left === 0 ? tr("dl_today") : tr("dl_left", { n: left }))}</div>
+    ${left < 0 ? `<p class="warn"><b>${tr("dl_late")}</b></p>` : left <= 7 ? `<p class="warn"><b>${tr("dl_soon")}</b></p>` : ""}
+    ${dl(x).note ? `<p>${esc(dl(x).note)}</p>` : ""}${x.appeal ? `<p class="note">${tr("dl_copy")}</p>` : ""}
+    <p class="note">${tr("dl_law")}: ${esc(x.law)}</p>
+    <div class="form-actions no-print">${left >= 0 ? `<button class="btn btn-red" id="ics" type="button">${tr("diary_add_ics")}</button>` : ""}</div></div>`;
+  $("#ics")?.addEventListener("click", () => download(`deadline-${last}.ics`, buildICS({
+    uid: `dl-${k}-${last}`, date: last, title: tr("dl_ics", { t: dl(x).t }), description: `${x.law}\n${tr("not_advice")}`,
+  }), "text/calendar"));
+}
+
 /* ---------------- router ---------------- */
 async function render() {
   const { path, params } = parseHash();
@@ -577,7 +775,8 @@ async function render() {
   }
   renderChrome(path);
   const pages = { "/": pageHome, "/estimate": pageEstimate, "/check": pageCheck, "/district": pageDistrict, "/method": pageMethod, "/about": pageAbout,
-    "/help": pageHelp, "/find": pageFind, "/decode": pageDecode, "/lawyer": pageLawyer, "/cost": pageCost, "/rights": pageRights };
+    "/help": pageHelp, "/find": pageFind, "/decode": pageDecode, "/lawyer": pageLawyer, "/cost": pageCost, "/rights": pageRights,
+    "/diary": pageDiary, "/case": pageCase, "/deadlines": pageDeadlines };
   const fn = pages[path] || pageHome;
   try { await fn(params); } catch (e) {
     $("#main").innerHTML = `<section class="wrap page"><p>${tr("no_data")}</p><p class="note">${esc(e.message)}</p></section>`;

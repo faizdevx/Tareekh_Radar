@@ -33,6 +33,11 @@ Records per filing year in the DDL files: 2010 4.28M, 2011 5.21M, 2012 6.40M, 20
 - **Stuck meter**: the gap since the last hearing placed within the p50/p75/p90/p95 gap quantiles (linear interpolation), and the share of similar cases decided by the case's age (from the KM curve).
 - **Legal references** (LSA Act s.12; CPC O.VIII r.1 and O.XVII r.1; CrPC 309/BNSS 346; CrPC 125/BNSS 144; NI Act 143/143A; CrPC 436A/BNSS 479; Art. 226/227, BNSS 528; NALSA 15100; eCourts SMS 9766899899) were checked against statutes, NALSA and eCourts pages and are shown as general information, not advice.
 
+## Case diary and deadlines (`site/js/diary.js`)
+- Stored only in `localStorage` (`cc-diary-v1`). No account and no server. Export/import is a JSON file; imports are sanitised (known fields only, bounded strings, valid dates, max 200 cases × 2,000 entries).
+- Reminders are RFC 5545 all-day events with an alarm 12 hours before, generated in the browser.
+- Deadlines: start date + statutory period (calendar months clamped at month end). The start day is excluded (Limitation Act s.12(1)); court holidays (s.4), certified-copy time (s.12(2)) and condonation (s.5) are explained, not computed. Cheque-bounce complaint = notice receipt + 15 days to pay, then one month from the next day (NI Act s.138(c), s.142(1)(b)).
+
 ## Collection date (why there is no "today" in the historical data)
 DDL does not publish when each record was collected. In the 2010–2011 files, pending cases' last listings cluster around **Jan–Feb 2019**, and a minority were updated in **2020**. A single snapshot date would therefore be wrong for most records. An earlier version used the 99.9th percentile of listing dates (about Sept 2020), and it made 81% of Maharashtra's pending cases look unlisted for over a year. The fix is that nothing in the public statistics depends on a collection date:
 - durations of pending cases end at their own last listing;
