@@ -155,6 +155,8 @@ def score_statistical(features: pd.DataFrame, cfg: dict, mode: str | None = None
             ok = akey.map(n).fillna(0) >= min_size
             idx = akey.index[ok.to_numpy()]
             ak = akey[ok]
+            if len(idx) == 0:
+                continue  # feature unavailable (e.g. all null) for this peer level
             xa = df.loc[idx, f].astype(float)
             df.loc[idx, f"{f}_peer_median"] = ak.map(med).to_numpy()
             df.loc[idx, f"{f}_peer_q1"] = ak.map(q1).to_numpy()

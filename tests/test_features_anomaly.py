@@ -65,7 +65,16 @@ def test_repeated_hearing_dates_counted(cfg):
     assert f["same_day_entries"] == 1 and f["maximum_hearing_gap"] == 59
 
 
+def test_case_level_without_collection_date_uses_lower_bound(cfg):
+    cl = clean_dataset(raw(case_level_population()), cfg)
+    f = compute_case_features(cl.cases, cl.hearings, cfg).set_index("case_id")
+    o = f.loc["OUTLIER"]
+    assert np.isnan(o["days_since_last_listing"])  # collection date unknown -> unavailable
+    assert o["case_observation_end"] == o["last_listing_date"]  # pending observed to own last listing
+
+
 def test_case_level_features_and_scoring(cfg):
+    cfg["features"]["case_reference_date"] = "2020-06-01"  # collection date known in this test
     cl = clean_dataset(raw(case_level_population()), cfg)
     f = compute_case_features(cl.cases, cl.hearings, cfg)
     assert f.attrs["data_level"] == "case"

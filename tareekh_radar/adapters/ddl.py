@@ -21,6 +21,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from ..categories import assign_categories
+
 log = logging.getLogger(__name__)
 
 DATAVERSE_DOI = "doi:10.7910/DVN/GHLGSW"
@@ -29,7 +31,7 @@ DATAVERSE_DOI = "doi:10.7910/DVN/GHLGSW"
 READ_COLUMNS = [
     "ddl_case_id", "year", "state", "state_name", "district", "district_name", "court", "court_name",
     "date_of_filing", "date_of_decision", "date_first_list", "date_last_list", "date_next_list",
-    "purpose_name", "type_name", "disp_name", "criminal",
+    "purpose_name", "type_name", "disp_name", "criminal", "act", "section",
 ]
 EXCLUDED_SENSITIVE = ["pet_name", "def_name", "pet_adv", "def_adv", "cino", "case_no",
                       "*_muslim", "*_female", "ddl_*_judge_id", "judge_desg", "judge_position"]
@@ -111,7 +113,14 @@ def extract(
                 "next_listing_date": c["date_next_list"],
                 "current_purpose": _decode(c["purpose_name"], yrs, keys["purpose_name"]),
                 "disposal_nature": disposal_nature,
-                "case_category": c["criminal"].map({1: "CRIMINAL", 0: "CIVIL"}),
+                # DDL's `criminal` flag marks only a subset of criminal cases (0 is not "civil"),
+                # so the category comes from the recorded type name and act/section instead.
+                "case_category": assign_categories(_decode(c["type_name"], yrs, keys["type_name"]),
+                                                   c["act"].astype(str).str.strip(),
+                                                   c["section"].astype(str).str.strip()).to_numpy(),
+                "act": c["act"].astype(str).str.strip(),
+                "section": c["section"].astype(str).str.strip(),
+                "filing_year": yrs.astype(int).astype(str),
                 "state_code": st,
                 "state_name": c["state_name"].astype(str).str.strip(),
                 "district_id": dist,

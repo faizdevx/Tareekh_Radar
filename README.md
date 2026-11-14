@@ -4,6 +4,16 @@ Tareekh Radar is a research tool. It finds **statistically unusual case-progress
 
 > **What it is not.** The tool reports statistical deviations from comparable cases in the same dataset. An unusual pattern can have legitimate procedural explanations, and it can also be a data error. **Nothing in this project establishes misconduct or responsibility by any judge, lawyer, litigant or court official.**
 
+## Case Clock: the public website (`site/`)
+
+**Case Clock (तारीख घड़ी)** is a free, bilingual (English/हिंदी) static website for litigants. It is built on the same real data:
+
+- **How long will it take?** Historical time to decision (Kaplan–Meier, so pending cases are not dropped) and how cases ended, for a case type in your district.
+- **Is my case delayed?** You enter your filing, last-hearing and next-hearing dates, and the site compares them with similar cases. This happens **in your browser; your dates are never sent anywhere.** It also links to official next steps: eCourts status, free legal aid (NALSA/DLSA), Lok Adalat.
+- **District report cards**: median time to decision, share of cases undecided after 3 years, long scheduled gaps, and a breakdown by case type.
+
+The current data covers 9,489,980 real cases filed in 2010–2011 across 629 districts (DDL eCourts). Only aggregates are published, and groups under 30 cases are hidden. Run it locally with `python -m http.server 8611 --directory site`. See [site/README.md](site/README.md) and [docs/public_site.md](docs/public_site.md).
+
 ## Data: real sources only
 
 The project ships **no data** and **no generated or synthetic records**. All analysis runs on public judicial data that you download yourself.
@@ -16,7 +26,7 @@ The project ships **no data** and **no generated or synthetic records**. All ana
 
 See [docs/data_acquisition.md](docs/data_acquisition.md) for download steps, licences and access limits.
 
-**Reference run** (real data): 94,972 Delhi district-court cases filed in 2010 (DDL `cases_clean_2010`). 94,389 were scored against peer groups. 3,727 were flagged, and 48 of those flags sit on records with date inconsistencies. Run details are in [PROJECT_STATUS.md](PROJECT_STATUS.md).
+**Reference run** (real data): 94,972 Delhi district-court cases filed in 2010 (DDL `cases_clean_2010`). 94,389 were scored against peer groups. 3,739 were flagged, and 47 of those flags sit on records with date inconsistencies. Run details are in [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Quick start
 

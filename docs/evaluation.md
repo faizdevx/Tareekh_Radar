@@ -28,8 +28,8 @@ No performance number in this project is invented. Metrics need either the proce
 
 From `python -m tareekh_radar.cli evaluate --dataset ddl_2010_delhi`. These are unlabelled diagnostics, not accuracy figures:
 
-- 94,389 cases scored. 3,727 statistical flags and 931 Isolation Forest flags (top 1%); 671 cases flagged by both.
-- Spearman: statistical vs IF 0.58; statistical vs raw case age 0.51; statistical vs raw days since last listing 0.37.
+- 94,389 cases scored. 3,739 statistical flags and 931 Isolation Forest flags (top 1%); 682 cases flagged by both.
+- Spearman: statistical vs IF 0.58; statistical vs raw case age 0.50. Days since last listing is not computed, because the collection date is unknown (see limitations).
 - Top-50 overlap with raw case-age ranking: 0.0. Peer normalisation changes which cases rank highest.
-- Sensitivity: with 30% of case records dropped, Spearman vs baseline is 0.98 and 91–92% of baseline flags are kept. With 30% of listing dates masked, Spearman is 0.98 but only 64–65% of baseline flags are kept. Flags depend more on listing-date completeness than on the sample size.
+- Sensitivity: with 30% of case records dropped, Spearman vs baseline is 0.98 and 92% of baseline flags are kept. With 30% of listing dates masked, Spearman is 0.98 but only 64–65% of baseline flags are kept. Flags depend more on listing-date completeness than on the sample size.
 - Human validation: **not yet done**. No precision figure exists until reviewers complete the review sheet.

@@ -167,6 +167,16 @@ def cmd_review_evaluate(args) -> int:
     return 0
 
 
+def cmd_build_site(args) -> int:
+    from .public.build import build_site_data
+
+    cfg = _cfg(args)
+    meta = build_site_data(args.extracts, args.out, cfg, min_n=args.min_n)
+    print(json.dumps(meta["totals"], indent=2))
+    print(f"Site data written to {args.out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="tareekh", description="Tareekh Radar research pipeline")
     p.add_argument("--config", default=None, help="YAML merged over config/default.yaml")
@@ -180,6 +190,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--districts", default=None, help="Comma-separated SS-DD codes, e.g. 26-01")
     s.add_argument("--name", default=None)
     s.set_defaults(func=cmd_ddl_extract)
+
+    s = sub.add_parser("build-site", help="Build public Case Clock aggregates (JSON) from DDL extracts")
+    s.add_argument("--extracts", nargs="+", required=True, help="cases.parquet files from ddl-extract")
+    s.add_argument("--out", default="site/data")
+    s.add_argument("--min-n", type=int, default=30, help="Suppress groups with fewer cases")
+    s.set_defaults(func=cmd_build_site)
 
     s = sub.add_parser("process", help="Load, validate, clean, (classify,) featurize and score a dataset")
     s.add_argument("--cases", required=True)

@@ -1,0 +1,9 @@
+{
+  "name": "case-clock-site",
+  "private": true,
+  "type": "module",
+  "description": "Static public site for Case Clock (Tareekh Ghadi). No build step.",
+  "scripts": {
+    "test": "node --test tests/logic.test.js"
+  }
+}

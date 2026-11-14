@@ -19,9 +19,17 @@ _Last updated: 2026-11-13_
 ## Reference run (real data)
 - DDL `cases_clean_2010`: 4,281,327 cases extracted (all states). Processed scope: **Delhi, 94,972 cases**.
 - Date quality: 422 invalid or out-of-range last-listing dates, 138 decisions before filing, 862 first listings before filing, 488 listings more than 31 days after disposal, 170 cases with undetermined status.
-- 94,389 cases scored; 3,727 flagged (2,008 high, 821 medium, 898 low); 48 of the flags are on records with quality issues.
-- Contributing features among flags: case_age_days 1,935, days_to_first_listing 1,929, next_listing_gap 73, days_since_last_listing 42.
-- Statistical vs Isolation Forest: Spearman 0.58, 671 cases flagged by both.
+- 94,389 cases scored; 3,739 flagged (2,004 high, 828 medium, 907 low); 47 of the flags are on records with quality issues.
+- Contributing features among flags: case_age_days 1,973, days_to_first_listing 1,929, next_listing_gap 73. days_since_last_listing is not computed, because DDL's collection date is unknown.
+- Statistical vs Isolation Forest: Spearman 0.58, 682 cases flagged by both.
+
+## Public site: Case Clock (added 2026-11-14)
+- `site/`: static bilingual (EN/हिंदी) site matching the provided mockup. It has an estimator, a delay checker (runs in the browser), district report cards, methodology and about pages. Artwork is original SVG.
+- `build-site` aggregates 9,489,980 real cases (filed 2010–2011, 32 states/UTs, 629 districts) into 8.4 MB of JSON. It uses Kaplan–Meier time to decision with pending cases censored at their own last listing, outcome groups, hearing gaps, and suppression under 30 cases.
+- Case categories come from a transparent rule set over the recorded type name and act/section (`categories.py`). DDL's `criminal` flag was found to mark only a subset of criminal cases, so it is no longer used as a civil/criminal label.
+- Verified in the browser at desktop and mobile widths, in English and Hindi. Tests: 51 pytest, 10 node.
+- Reviewed and rejected: two eCourts scrapers suggested for live data, because both solve the eCourts CAPTCHA.
+- Pending: more filing years (2012–2018, about 10 GB more from Dataverse); enabling GitHub Pages; human review of the category mapping.
 
 ## Pending
 - **Human validation** of the top flags and the controls (`review-export`). No precision figure exists until this is done.
@@ -36,7 +44,7 @@ _Last updated: 2026-11-13_
 
 ## Data limitations
 - DDL has no per-hearing history, so adjournment and non-progress metrics are unavailable in case mode.
-- The snapshot date is approximated (2021-02-02 for Delhi 2010).
+- DDL's collection date is not published (pending records cluster in early 2019, some updated in 2020). Pending cases are observed up to their own last listing, which is a lower bound.
 - NJDG and eCourts portals are not used (CAPTCHA; no bulk permission).
 
 ## Implementation decisions

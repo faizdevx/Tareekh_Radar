@@ -132,7 +132,7 @@ def compute_case_features(
         feats["evidence"] = "{}"
         feats["days_since_last_substantive_basis"] = "unavailable"
         feats["data_completeness"] = feats["case_data_completeness"]
-        feats.attrs["reference_date"] = str(case_ref.date())
+        feats.attrs["reference_date"] = str(case_ref.date()) if case_ref is not None else "per-case last listing (collection date unknown)"
     feats.attrs["data_level"] = level
     return feats
 
@@ -152,19 +152,16 @@ def _case_level_features(cases: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, 
     fl = cases["first_listing_date"] if has_listing else pd.Series(pd.NaT, index=cases.index)
     ll = cases["last_listing_date"] if has_listing else pd.Series(pd.NaT, index=cases.index)
     nl = cases["next_listing_date"] if has_listing else pd.Series(pd.NaT, index=cases.index)
+    # When each record was collected is not published (DDL: mostly early 2019, some 2020).
+    # Without a configured collection date, a pending case is observed only up to its own
+    # last recorded listing (a lower bound), and "days since last listing" is unavailable.
     ref_cfg = fcfg.get("case_reference_date")
-    if ref_cfg:
-        ref = pd.Timestamp(ref_cfg)
-    else:
-        # Snapshot proxy: latest recorded listing or decision in the data (invalid dates already removed).
-        ref = pd.concat([ll, d]).max()
-        if pd.isna(ref):
-            ref = pd.Timestamp.today().normalize()
+    ref = pd.Timestamp(ref_cfg) if ref_cfg else None
     status = cases["case_status"]
     pending, disposed = status == "PENDING", status == "DISPOSED"
     obs_end = pd.Series(pd.NaT, index=cases.index, dtype="datetime64[ns]")
     obs_end[disposed & d.notna()] = d[disposed & d.notna()]
-    obs_end[pending] = ref
+    obs_end[pending] = ref if ref is not None else ll[pending]
     out["case_observation_end"] = obs_end
 
     def days(a, b):
@@ -174,8 +171,11 @@ def _case_level_features(cases: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, 
     out["case_age_days"] = age.where(age >= 0)
     ttf = days(fl, f)
     out["days_to_first_listing"] = ttf.where(ttf >= 0)
-    since = days(pd.Series(ref, index=cases.index), ll)
-    out["days_since_last_listing"] = since.where(pending & (since >= 0))
+    if ref is not None:
+        since = days(pd.Series(ref, index=cases.index), ll)
+        out["days_since_last_listing"] = since.where(pending & (since >= 0))
+    else:
+        out["days_since_last_listing"] = np.nan
     gap = days(nl, ll)
     out["next_listing_gap"] = gap.where(pending & (gap >= 0))
     span = days(ll, fl)

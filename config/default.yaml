@@ -190,8 +190,9 @@ features:
   # "As of" date for open cases. null = latest valid hearing date in the dataset.
   reference_date: null
   filing_cohort_years: 1
-  # Case-level mode: a pending case's "days since last listing" is measured to this date.
-  # null = latest listing/decision date observed in the dataset (data snapshot date proxy).
+  # Case-level mode: date the source records were collected. If null (default), pending
+  # cases are observed only up to their own last recorded listing (a lower bound) and
+  # "days since last listing" is unavailable. Set it only if the collection date is known.
   case_reference_date: null
 
 anomaly:
@@ -220,6 +221,8 @@ anomaly:
     case:
       features:
         case_age_days: { floor: 90.0, min_abs: 1095 }
+        # Only computed when features.case_reference_date (the data collection date) is set;
+        # otherwise null and skipped. DDL does not publish per-record collection dates.
         days_since_last_listing: { floor: 30.0, min_abs: 365 }
         days_to_first_listing: { floor: 30.0, min_abs: 180 }
         next_listing_gap: { floor: 30.0, min_abs: 180 }

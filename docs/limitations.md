@@ -6,9 +6,9 @@
 
 ## Data (DDL case-level)
 - There is **no per-hearing history**. Adjournments, non-progress streaks and stage loops cannot be observed; they are shown as unavailable.
-- The snapshot date is unknown and is approximated by the latest valid listing or decision date in the extracted scope (2021-02-02 for Delhi 2010). A different scope can give a different approximation. Set `features.case_reference_date` to fix it.
+- The collection date of each record is not published. Pending cases' last listings cluster in early 2019, with some updates in 2020. By default, a pending case is therefore observed only up to its own last listing. Durations are lower bounds, and "days since last listing" is unavailable unless `features.case_reference_date` is set to a known collection date.
 - Dates are as recorded in eCourts at scrape time. Some are impossible (years 0001, 9201) or inconsistent (listing after disposal, first listing before filing). They are flagged and excluded from the affected features, and flags on such records are marked `flag_has_quality_issue`.
-- A very late `date_first_list` on a disposed case may reflect data-entry or migration into the case-information system rather than a real delay. This feature contributes to 1,929 of the 3,727 Delhi 2010 flags. In 15.9% of the disposed ones, the first listing is within 31 days of the decision. These need human review.
+- A very late `date_first_list` on a disposed case may reflect data-entry or migration into the case-information system rather than a real delay. This feature contributes to 1,929 of the 3,739 Delhi 2010 flags. In 15.9% of the disposed ones, the first listing is within 31 days of the decision. These need human review.
 - `case_status` follows DDL's convention that a missing decision date means pending at the snapshot. Cases with a disposal nature but no date are left `UNKNOWN`.
 - Case types are normalised only by spelling. Local abbreviations are not mapped to national categories.
 - The replication release covers filing years 2010–2018 and only the courts DDL collected.

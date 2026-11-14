@@ -15,6 +15,7 @@ from .conftest import case_level_population, raw
 
 @pytest.fixture
 def processed(cfg):
+    cfg["features"]["case_reference_date"] = "2020-06-01"  # collection date known for this fixture
     r = raw(case_level_population())
     r.manifest.name = "unit_case_level"
     res = process(r, cfg)
