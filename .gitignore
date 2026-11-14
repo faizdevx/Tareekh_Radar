@@ -21,3 +21,6 @@ runs/*
 !runs/.gitkeep
 *.duckdb
 *.duckdb.wal
+
+# in-progress site data builds
+site/data_*/

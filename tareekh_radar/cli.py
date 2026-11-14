@@ -167,11 +167,19 @@ def cmd_review_evaluate(args) -> int:
     return 0
 
 
+def cmd_build_purposes(args) -> int:
+    from .public.build import build_purposes
+
+    res = build_purposes(args.extracts, args.out)
+    print(f"purposes.json: {len(res['purposes'])} stages, {res['total_pending_with_purpose']} pending cases")
+    return 0
+
+
 def cmd_build_site(args) -> int:
     from .public.build import build_site_data
 
     cfg = _cfg(args)
-    meta = build_site_data(args.extracts, args.out, cfg, min_n=args.min_n)
+    meta = build_site_data(args.extracts, args.out, cfg, min_n=args.min_n, min_filing_year=args.min_filing_year)
     print(json.dumps(meta["totals"], indent=2))
     print(f"Site data written to {args.out}")
     return 0
@@ -191,10 +199,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--name", default=None)
     s.set_defaults(func=cmd_ddl_extract)
 
+    s = sub.add_parser("build-purposes", help="Write site purposes.json (common hearing stages) from DDL extracts")
+    s.add_argument("--extracts", nargs="+", required=True)
+    s.add_argument("--out", default="site/data")
+    s.set_defaults(func=cmd_build_purposes)
     s = sub.add_parser("build-site", help="Build public Case Clock aggregates (JSON) from DDL extracts")
     s.add_argument("--extracts", nargs="+", required=True, help="cases.parquet files from ddl-extract")
     s.add_argument("--out", default="site/data")
     s.add_argument("--min-n", type=int, default=30, help="Suppress groups with fewer cases")
+    s.add_argument("--min-filing-year", type=int, default=None,
+                   help="Only use cases filed in or after this year (older DDL cohorts miss quickly disposed cases)")
     s.set_defaults(func=cmd_build_site)
 
     s = sub.add_parser("process", help="Load, validate, clean, (classify,) featurize and score a dataset")

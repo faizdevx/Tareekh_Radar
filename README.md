@@ -12,7 +12,9 @@ Tareekh Radar is a research tool. It finds **statistically unusual case-progress
 - **Is my case delayed?** You enter your filing, last-hearing and next-hearing dates, and the site compares them with similar cases. This happens **in your browser; your dates are never sent anywhere.** It also links to official next steps: eCourts status, free legal aid (NALSA/DLSA), Lok Adalat.
 - **District report cards**: median time to decision, share of cases undecided after 3 years, long scheduled gaps, and a breakdown by case type.
 
-The current data covers 9,489,980 real cases filed in 2010–2011 across 629 districts (DDL eCourts). Only aggregates are published, and groups under 30 cases are hidden. Run it locally with `python -m http.server 8611 --directory site`. See [site/README.md](site/README.md) and [docs/public_site.md](docs/public_site.md).
+- **Help tools** built around problems litigants raise on Indian legal forums: find and check your CNR, decode the order-sheet stage (glossary matched against the 400 most common stages actually recorded for pending cases), questions to ask your lawyer by stage (print/WhatsApp), cost of delay (real durations × DAKSH survey costs), and free legal aid plus the time limits written in law, with the real district figures next to them.
+
+The current data covers 80,935,944 real cases filed 2010–2018 across 32 states/UTs and 632 districts (DDL eCourts). Older filing years under-represent quickly decided cases (records per year rise from 4.3M in 2010 to 13.7M in 2018), so durations pooled over all years are biased upward; `build-site --min-filing-year` restricts the cohorts. Only aggregates are published, and groups under 30 cases are hidden. Run it locally with `python -m http.server 8611 --directory site`. See [site/README.md](site/README.md) and [docs/public_site.md](docs/public_site.md).
 
 ## Data: real sources only
 

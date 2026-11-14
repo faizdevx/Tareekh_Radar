@@ -11,6 +11,7 @@
 | `states/<code>.json` | state summary, per category, district comparison list |
 | `districts/<id>.json` | district summary (incl. by filing year), per category |
 | `category_mapping.json` | top 1,500 recorded case types → category, with counts (audit) |
+| `purposes.json` | 400 most common recorded hearing purposes ("stage") among pending cases, normalised, with counts; used by the order-sheet decoder |
 
 ## Statistics per group (`group_stats`)
 - `time_to_decision_days.p50/p75/p90`: Kaplan–Meier quantiles of filing → decision. Each pending case is censored at **its own last recorded listing date**, the latest date it is known to have been pending. This is a lower bound, so it can understate delay but never overstate it. Pending cases with no valid last listing are excluded and counted in `n_excluded_bad_dates`. Transferred, committed and converted cases are censored at their disposal date, since they continue elsewhere. If a quantile is not reached within follow-up, it is `null`, shown as "more than {max follow-up}".
@@ -21,6 +22,16 @@
 - `next_hearing_gap_days`: p50/p75/p90/p95 of last listing → next scheduled listing among cases pending at the snapshot.
 - `pending_next_gap_over_6m_share`: share of pending cases whose next hearing was set more than 182 days after their last one. This metric needs no collection date.
 - Groups with `n < min_n` (30) only publish counts (`suppressed: true`).
+
+## Cohort completeness (important)
+Records per filing year in the DDL files: 2010 4.28M, 2011 5.21M, 2012 6.40M, 2013 7.56M, 2014 8.87M, 2015 10.48M, 2016 11.35M, 2017 13.07M, 2018 13.72M. Real filings did not triple, so older years appear to be missing many quickly decided cases (likely disposed before the court's records moved to eCourts). Kaplan–Meier corrects for right-censoring, not for this left-truncation, so durations from older cohorts are biased upward. Mitigations: `build-site --min-filing-year` (recommended: 2014), and caveats on the Methodology page and under the by-filing-year chart.
+
+## Help tools (client-side, `site/js/help.js`)
+- **Stage decoder**: ordered regex rules (first match wins) over normalised stage text, 21 stages with EN/HI explanations. Measured on the 400 most common recorded purposes, the rules match 95% of pending cases. Unknown abbreviations are not guessed.
+- **CNR check**: format only (2-letter state + 2-letter district + 2-digit establishment + 6-digit serial + 4-digit year). No lookup is made.
+- **Cost of delay**: hearings ≈ median time to decision ÷ median scheduled gap between hearings (minimum 7 days); cost = hearings × per-day cost × people. Default per-day cost is the DAKSH 2015-16 survey average (civil ₹497 + ₹844, criminal ₹542 + ₹902), editable. The data has no hearing counts, so this is labelled an estimate.
+- **Stuck meter**: the gap since the last hearing placed within the p50/p75/p90/p95 gap quantiles (linear interpolation), and the share of similar cases decided by the case's age (from the KM curve).
+- **Legal references** (LSA Act s.12; CPC O.VIII r.1 and O.XVII r.1; CrPC 309/BNSS 346; CrPC 125/BNSS 144; NI Act 143/143A; CrPC 436A/BNSS 479; Art. 226/227, BNSS 528; NALSA 15100; eCourts SMS 9766899899) were checked against statutes, NALSA and eCourts pages and are shown as general information, not advice.
 
 ## Collection date (why there is no "today" in the historical data)
 DDL does not publish when each record was collected. In the 2010–2011 files, pending cases' last listings cluster around **Jan–Feb 2019**, and a minority were updated in **2020**. A single snapshot date would therefore be wrong for most records. An earlier version used the 99.9th percentile of listing dates (about Sept 2020), and it made 81% of Maharashtra's pending cases look unlisted for over a year. The fix is that nothing in the public statistics depends on a collection date:
@@ -35,7 +46,7 @@ DDL does not publish when each record was collected. In the 2010–2011 files, p
   - **somewhat**: days since the last hearing exceed p75, or fewer than 25% of similar cases were undecided at this case's age.
   - **usual**: neither of the above.
   - **insufficient**: no comparable statistics.
-- Next steps link only to official sites: eCourts services and NALSA (legal aid, Lok Adalat).
+- Next steps depend on the result (gap, age, case type) and link to the site's help tools and official sites only (eCourts, NALSA).
 
 ## Categories
 Rules are in `tareekh_radar/categories.py`. Act/section overrides the type name when recognised (NI Act 138 → cheque bounce; CrPC 125 → maintenance; CrPC 436–439 → bail; Motor Vehicles Act → motor accident). Unclear abbreviations stay in "Other / unclear type".

@@ -92,3 +92,26 @@ def test_build_site_data_end_to_end(cfg, tmp_path):
     text = (out / "districts" / "26-01.json").read_text(encoding="utf-8")
     assert "X1" not in text  # no individual case ids in published data
     assert json.loads((out / "national.json").read_text(encoding="utf-8"))["categories"]["motor_accident"]["n"] == 120
+    purposes = json.loads((out / "purposes.json").read_text(encoding="utf-8"))
+    assert purposes["total_pending_with_purpose"] == 40
+    assert purposes["purposes"] == [{"text": "evidence", "n": 40}]
+
+
+def test_normalize_purpose_matches_site_rule():
+    from tareekh_radar.public.build import normalize_purpose
+
+    assert normalize_purpose("  N.B.W.  Unready ") == "n b w unready"
+    assert normalize_purpose("Appearance of Accused/ Surety") == "appearance of accused/ surety"
+
+
+def test_min_filing_year_filter(cfg, tmp_path):
+    rows = [{"case_id": f"Y{i}", "court_id": "26-01-01", "case_type": "M.A.C.P.", "filing_date": f"{2010 + i % 2}-02-01",
+             "disposal_date": f"{2012 + i % 2}-02-01", "case_status": None, "first_listing_date": None,
+             "last_listing_date": f"{2012 + i % 2}-02-01", "next_listing_date": None, "disposal_nature": "award",
+             "case_category": "motor_accident", "state_code": "26", "state_name": "Delhi", "district_id": "26-01",
+             "district_name": "Central", "filing_year": str(2010 + i % 2), "current_purpose": None, "source_reference": "unit"}
+            for i in range(80)]
+    p = tmp_path / "cases.parquet"
+    pd.DataFrame(rows).to_parquet(p, index=False)
+    meta = build_site_data([p], tmp_path / "site", cfg, min_n=30, min_filing_year=2011)
+    assert meta["totals"]["cases"] == 40 and meta["filing_years"] == ["2011"] and meta["min_filing_year"] == 2011

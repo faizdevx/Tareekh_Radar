@@ -1,6 +1,8 @@
 import { t } from "./i18n.js";
 import { icons, logo, hero, brush, vignetteScales, vignetteHourglass, vignettePen, courthouse } from "./art.js";
 import { pickStats, checkCase, formatDuration, formatHeadline, pct, shareDecidedAt, MONTH_DAYS } from "./logic.js";
+import { STAGES, decodePurpose, STAGE_GROUPS, GROUP_LABEL, questionsFor, QUESTIONS, parseCNR, DAKSH, CRIMINAL_CATS,
+  costEstimate, approxPercentile, nextSteps } from "./help.js";
 
 const OUTCOME_COLORS = {
   compromise: "#4b8a3c", lok_adalat: "#8fb35d", allowed: "#2f6f8f", dismissed: "#b8ad9e", withdrawn: "#ddd3c4",
@@ -10,9 +12,11 @@ const LINKS = {
   dlsa: "https://nalsa.gov.in/",
   lok: "https://nalsa.gov.in/",
   ecourts: "https://services.ecourts.gov.in/",
+  hc: "https://hcservices.ecourts.gov.in/",
+  judgments: "https://judgments.ecourts.gov.in/",
 };
 
-const state = { lang: "en", meta: null, national: null, states: {}, districts: {} };
+const state = { lang: "en", meta: null, national: null, states: {}, districts: {}, purposes: null };
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const tr = (k, v) => t(state.lang, k, v);
@@ -33,6 +37,7 @@ async function national() { return state.national ??= await getJSON("data/nation
 async function stateData(code) { return state.states[code] ??= await getJSON(`data/states/${code}.json`); }
 async function districtData(id) { return state.districts[id] ??= await getJSON(`data/districts/${id}.json`); }
 
+const yearSpan = (ys) => (ys.length > 2 ? `${ys[0]}–${ys[ys.length - 1]}` : ys.join(", "));
 const catName = (k) => (state.meta?.categories?.[k]?.[state.lang] ?? k);
 const outName = (k) => (state.meta?.outcome_groups?.[k]?.[state.lang] ?? k);
 const fmtN = (n) => (n == null ? "–" : Number(n).toLocaleString(state.lang === "hi" ? "hi-IN" : "en-IN"));
@@ -51,14 +56,16 @@ function go(path, params) {
 function renderChrome(path) {
   document.documentElement.lang = state.lang;
   $("#brand").innerHTML = `${logo()}<span><div class="brand-name">${tr("brand")}</div><div class="brand-hi">${tr("brand_hi")}</div></span>`;
-  const nav = [["/estimate", "nav_estimate"], ["/check", "nav_check"], ["/district", "nav_districts"], ["/method", "nav_method"], ["/about", "nav_about"]];
-  $("#main-nav").innerHTML = nav.map(([p, k]) => `<a href="#${p}" class="${path === p ? "active" : ""}">${tr(k)}</a>`).join("");
+  const nav = [["/estimate", "nav_estimate"], ["/check", "nav_check"], ["/district", "nav_districts"], ["/help", "nav_help"], ["/method", "nav_method"], ["/about", "nav_about"]];
+  const helpPaths = ["/help", "/find", "/decode", "/lawyer", "/cost", "/rights"];
+  const isActive = (p) => path === p || (p === "/help" && helpPaths.includes(path));
+  $("#main-nav").innerHTML = nav.map(([p, k]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${tr(k)}</a>`).join("");
   $("#lang-toggle").innerHTML = state.lang === "en" ? "<b>EN</b> / हिंदी" : "EN / <b>हिंदी</b>";
-  const bn = [["/", "nav_home", icons.home], ["/estimate", "nav_estimate", icons.hg], ["/check", "nav_check_short", icons.calsm], ["/district", "nav_districts", icons.barsm]];
-  $("#bottom-nav").innerHTML = bn.map(([p, k, ic]) => `<a href="#${p}" class="${path === p ? "active" : ""}">${ic}<span>${tr(k)}</span></a>`).join("");
+  const bn = [["/", "nav_home", icons.home], ["/estimate", "nav_estimate", icons.hg], ["/check", "nav_check_short", icons.calsm], ["/district", "nav_districts", icons.barsm], ["/help", "nav_help", icons.helpsm]];
+  $("#bottom-nav").innerHTML = bn.map(([p, k, ic]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${ic}<span>${tr(k)}</span></a>`).join("");
   $("#disclaimer").textContent = tr("disclaimer");
   const m = state.meta;
-  const years = m ? m.filing_years.join("–") : "";
+  const years = m ? yearSpan(m.filing_years) : "";
   $("#footer").innerHTML = `<a class="brand" href="#/">${logo("#fff")}<span><div class="brand-name">${tr("brand")}</div><div class="brand-hi">${tr("brand_hi")}</div></span></a>
     <div class="fnote">${tr("footer_note")} ${years ? `(${esc(years)})` : ""}</div>
     <nav><a href="#/about">${tr("nav_about")}</a><a href="#/method">${tr("nav_method")}</a><a href="${m ? esc(m.source_url) : "#/method"}" rel="noopener">Data</a></nav>
@@ -134,7 +141,7 @@ function levelNote(level, n) {
 function dataYearsNote() {
   const m = state.meta;
   const snaps = m.states.map((s) => s.snapshot_date).sort();
-  return tr("data_years", { years: m.filing_years.join(", "), snap: snaps.filter(Boolean)[Math.floor(snaps.filter(Boolean).length / 2)]?.slice(0, 4) || "" });
+  return tr("data_years", { years: yearSpan(m.filing_years), snap: snaps.filter(Boolean)[Math.floor(snaps.filter(Boolean).length / 2)]?.slice(0, 4) || "" });
 }
 async function statsFor(s, d, c) {
   const [dd, ss, nn] = await Promise.all([d ? districtData(d).catch(() => null) : null, s ? stateData(s).catch(() => null) : null, national()]);
@@ -168,16 +175,10 @@ async function pageHome() {
     </div>
   </section>
   <div class="scallop"></div>
-  <section class="wrap"><div class="features">
-    <a class="feature" href="#/estimate">${icons.hourglass}<div><h3>${tr("f_estimate_t")}</h3><p>${tr("f_estimate_s")}</p></div></a>
-    <a class="feature" href="#/check">${icons.calendar}<div><h3>${tr("f_check_t")}</h3><p>${tr("f_check_s")}</p></div></a>
-    <a class="feature" href="#/district">${icons.bars}<div><h3>${tr("f_district_t")}</h3><p>${tr("f_district_s")}</p></div></a>
-  </div>
-  <div class="how"><div><h2>${tr("how_title")}</h2><div class="steps">
-    <div class="step"><span class="num">1</span>${tr("how_1")}</div><div class="step"><span class="num">2</span>${tr("how_2")}</div><div class="step"><span class="num">3</span>${tr("how_3")}</div>
-  </div></div><div class="how-art">${courthouse()}</div></div>
+  <section class="wrap">
+  <div class="tools-sec"><h2 class="section-title">${tr("tools_title")}</h2><p class="note">${tr("tools_sub")}</p>${toolsGrid()}</div>
   <div class="band"><div class="band-art">${courthouse()}</div>
-    <div><div class="big">${fmtN(m.totals.cases)}</div><div class="lbl">${tr("band_cases")} (${tr("band_years")} ${esc(m.filing_years.join("–"))})</div></div>
+    <div><div class="big">${fmtN(m.totals.cases)}</div><div class="lbl">${tr("band_cases")} (${tr("band_years")} ${esc(yearSpan(m.filing_years))})</div></div>
     <div><div class="big">${fmtN(m.totals.districts)}</div><div class="lbl">${tr("band_districts")}</div></div>
     <div><div class="big">${fmtN(typeCount)}</div><div class="lbl">${tr("band_types")}</div></div>
   </div>
@@ -241,11 +242,11 @@ async function pageCheck(params) {
     const res = checkCase(inputs, stats, today);
     if (res.errors.length) { $("#errs").innerHTML = res.errors.map((k) => `<li>${tr(k)}</li>`).join(""); return; }
     $("#errs").innerHTML = "";
-    renderCheckResult(res, stats, level, district, v.c);
+    renderCheckResult(res, stats, level, district, v.c, v);
   });
 }
 
-function renderCheckResult(res, stats, level, district, c) {
+function renderCheckResult(res, stats, level, district, c, sel = {}) {
   const vText = { longer: tr("v_longer"), somewhat: tr("v_somewhat"), usual: tr("v_usual"), insufficient: tr("v_insufficient") }[res.verdict];
   let rangeHTML = "";
   if (res.gapP95 != null) {
@@ -264,12 +265,9 @@ function renderCheckResult(res, stats, level, district, c) {
       <div class="statbox"><div class="k">${tr("similar_listed")}</div><div class="v" style="color:var(--green)">${esc(res.gapP95 != null ? formatDuration(res.gapP95, state.lang) : "–")}</div><div class="note">${tr("of_cases_95")}</div></div></div>
     ${rangeHTML}${ageLine}
     ${res.reasons.length ? `<ul class="reasons">${res.reasons.map((r) => `<li>${esc(tr(r))}</li>`).join("")}</ul>` : ""}
+    ${stuckMeter(res, stats)}
     <h2 class="section-title" style="margin-top:20px;font-size:20px">${tr("steps_title")}</h2>
-    <ul class="links">
-      <li><a href="${LINKS.ecourts}" target="_blank" rel="noopener">${icons.globe}${tr("step_ecourts")}<span class="go">→</span></a></li>
-      <li><a href="${LINKS.dlsa}" target="_blank" rel="noopener">${icons.doc}${tr("step_early")}<span class="go">→</span></a></li>
-      <li><a href="${LINKS.dlsa}" target="_blank" rel="noopener">${icons.scales}${tr("step_dlsa")}<span class="go">→</span></a></li>
-      <li><a href="${LINKS.lok}" target="_blank" rel="noopener">${icons.building}${tr("step_lok")}<span class="go">→</span></a></li>
+    <ul class="links">${nextSteps(res, c).map((k) => `<li><a href="${stepHref(k, sel, c)}">${STEP_ICONS[k] || icons.doc}${esc(tr(k))}<span class="go">→</span></a></li>`).join("")}
     </ul>${levelNote(level, stats?.n)}<p class="note">${tr("not_advice")}</p>`;
 }
 
@@ -285,7 +283,7 @@ async function pageDistrict(params) {
   const dd = d ? await districtData(d) : null;
   const obj = dd || ss;
   const sm = obj.summary, sts = ss.summary;
-  const years = state.meta.filing_years.join("–");
+  const years = yearSpan(state.meta.filing_years);
   const metric = (ic, v, k, cmp) => `<div class="metric">${ic}<div><div class="v">${v}</div><div class="k">${k}</div>${cmp ? `<div class="s">${cmp}</div>` : ""}</div></div>`;
   const med = (x) => x?.time_to_decision_days?.p50;
   const byYear = Object.entries(sm.by_filing_year || {});
@@ -297,7 +295,7 @@ async function pageDistrict(params) {
       ${metric(icons.layers, pct(sm.share_undecided_at_3y), tr("m_3y"), dd ? tr("compare_state", { v: pct(sts.share_undecided_at_3y) }) : "")}
       ${metric(icons.cal, pct(sm.pending_next_gap_over_6m_share), tr("m_dormant"), dd ? tr("compare_state", { v: pct(sts.pending_next_gap_over_6m_share) }) : "")}
     </div>
-    ${byYear.length ? `<h3>${tr("by_year")}</h3>${yearChart(byYear, sts.by_filing_year)}` : ""}
+    ${byYear.length ? `<h3>${tr("by_year")}</h3>${yearChart(byYear, sts.by_filing_year)}<p class="note">${tr("cohort_note")}</p>` : ""}
     </div>
     <div class="card" style="margin-top:18px"><h2 style="font-size:22px">${tr("cat_table")}</h2>
     <table class="data"><thead><tr><th>${tr("col_type")}</th><th class="num">${tr("col_n")}</th><th class="num">${tr("col_median")}</th><th class="num">${tr("col_3y")}</th><th></th></tr></thead><tbody>
@@ -336,7 +334,8 @@ async function pageMethod() {
   $("#main").innerHTML = `<section class="wrap page prose"><h1>${tr("method_title")}</h1>${hiNote}
   <h2>Where the numbers come from</h2>
   <p>Every number is computed from real district-court case records collected from eCourts and published, de-identified, by the Development Data Lab: <a href="${esc(m.source_url)}" rel="noopener">${esc(m.source)}</a>. Licence: ${esc(m.license)} Please cite: ${esc(m.citation)}.</p>
-  <p>Coverage on this site: cases <b>filed in ${esc(m.filing_years.join(" and "))}</b>, ${fmtN(m.totals.cases)} cases in ${fmtN(m.totals.states)} states and ${fmtN(m.totals.districts)} districts, as recorded when the data was collected (mostly early 2019, some records updated in 2020). ${esc(dataYearsNote())} These are <b>historical patterns</b>, not live case status.</p>
+  <p>Coverage on this site: cases <b>filed ${esc(yearSpan(m.filing_years))}</b>, ${fmtN(m.totals.cases)} cases in ${fmtN(m.totals.states)} states and ${fmtN(m.totals.districts)} districts, as recorded when the data was collected (mostly early 2019, some records updated in 2020). ${esc(dataYearsNote())} These are <b>historical patterns</b>, not live case status.</p>
+  <p><b>Older filing years are incomplete.</b> The number of records per filing year rises from about 4.3 million (2010) to 13.7 million (2018). Real filings did not triple, so earlier years appear to be missing many cases that were decided quickly, before courts moved their records to eCourts. Durations from older filing years are therefore biased upward, and the "by filing year" chart overstates how much faster courts became.${m.min_filing_year ? ` To limit this bias, statistics here use only cases filed from ${m.min_filing_year}.` : ""}</p>
   <p>Case Clock does <b>not</b> scrape eCourts, solve CAPTCHAs or look up any live case. What you type in the delay checker never leaves your browser.</p>
   <h2>How long cases take</h2>
   <p>"Half / 9 in 10 were decided within" are the 50th and 90th percentiles of time from filing to decision, estimated with the <b>Kaplan–Meier</b> method. A case still pending in the data is counted as "undecided for at least this long", up to its own last recorded hearing, rather than dropped. Dropping pending cases would make courts look faster than they are. Stopping at the last recorded hearing can only understate delays, never overstate them. Cases transferred to or committed to another court are treated the same way, because their outcome is decided elsewhere. If fewer than 10% (or 50%) of cases were still pending at the end of the follow-up, the site says "more than …".</p>
@@ -366,6 +365,208 @@ function pageAbout() {
   <p>${tr("disclaimer")}</p></section>`;
 }
 
+
+/* ---------------- help tools ---------------- */
+const TOOLS = [["/check", "tool_check", "calendar"], ["/find", "tool_find", "globe"], ["/decode", "tool_decode", "doc"],
+  ["/lawyer", "tool_lawyer", "scales"], ["/cost", "tool_cost", "clock"], ["/rights", "tool_rights", "building"]];
+function toolsGrid() {
+  return `<div class="tools">${TOOLS.map(([p, k, ic]) => `<a class="tool" href="#${p}"><span class="tool-ic">${icons[ic]}</span><div><h3>${tr(k + "_t")}</h3><p>${tr(k + "_s")}</p></div><span class="go">→</span></a>`).join("")}</div>`;
+}
+const STEP_ICONS = { ns_decode: icons.doc, ns_status: icons.globe, ns_early: icons.doc, ns_highcourt: icons.building,
+  ns_maint: icons.scales, ns_cheque: icons.scales, ns_undertrial: icons.scales, ns_lawyer: icons.doc, ns_aid: icons.scales, ns_cost: icons.clock };
+function stepHref(k, sel, c) {
+  const q = new URLSearchParams(Object.entries({ s: sel.s, d: sel.d, c }).filter(([, v]) => v)).toString();
+  return { ns_decode: "#/decode", ns_status: "#/find", ns_early: "#/lawyer", ns_highcourt: "#/rights", ns_maint: "#/rights",
+    ns_cheque: "#/rights", ns_undertrial: "#/rights", ns_lawyer: "#/lawyer", ns_aid: "#/rights", ns_cost: `#/cost?${q}` }[k] || "#/help";
+}
+function stuckMeter(res, stats) {
+  const gp = approxPercentile(res.gapDays, stats?.next_hearing_gap_days);
+  const decided = res.shareStillPendingAtAge == null ? null : 1 - res.shareStillPendingAtAge;
+  if (gp == null && decided == null) return "";
+  const bar = (v, label) => `<div class="meter"><div class="meter-track"><span style="width:${Math.max(2, Math.min(100, v)).toFixed(1)}%"></span></div><div class="meter-label">${label}</div></div>`;
+  const gpTxt = gp >= 96 ? (state.lang === "hi" ? "95% से अधिक" : "more than 95%") : (state.lang === "hi" ? `लगभग ${Math.round(gp)}%` : `about ${Math.round(gp)}%`);
+  return `<div class="card stuck"><h3>${tr("stuck_title")}</h3>
+    ${gp != null ? bar(gp, esc(tr("stuck_gap", { p: gpTxt }))) : ""}
+    ${decided != null ? bar(decided * 100, esc(tr("stuck_age", { p: pct(decided) }))) : ""}</div>`;
+}
+const backHead = (title, to = "#/help") => `<div class="page-head"><a class="back" href="${to}" aria-label="${tr("back")}">←</a><h1>${title}</h1></div>`;
+async function purposes() { try { return (state.purposes ??= await getJSON("data/purposes.json")); } catch (_) { return null; } }
+function stageText(st) { return st[state.lang] || st.en; }
+
+function pageHelp() {
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("help_title"), "#/")}
+    <p class="note">${tr("tools_sub")}</p>${toolsGrid()}</section>`;
+}
+
+function pageFind() {
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("find_title"))}
+    <p class="lead">${tr("find_intro")}</p>
+    <div class="grid-2 even">
+      <div class="card"><h2>${tr("find_where")}</h2><ol class="clean">${[1, 2, 3, 4].map((i) => `<li>${tr("find_where_" + i)}</li>`).join("")}</ol></div>
+      <div class="card"><h2>${tr("find_check")}</h2>
+        <form id="cnr" class="inline-form"><label class="sr-only" for="cnr-i">CNR</label>
+          <input id="cnr-i" class="text" placeholder="${tr("find_ph")}" maxlength="24" autocomplete="off" spellcheck="false" autocapitalize="characters">
+          <button class="btn btn-red">${tr("find_go")}</button></form>
+        <div id="cnr-out" class="cnr-out" aria-live="polite"></div><p class="note">${tr("cnr_note")}</p></div>
+    </div>
+    <div class="grid-2 even">
+      <div class="card"><h2>${tr("find_how")}</h2><ul class="links">
+        <li><a href="${LINKS.ecourts}" target="_blank" rel="noopener">${icons.globe}${tr("find_web")}<span class="go">↗</span></a></li>
+        <li><a href="${LINKS.hc}" target="_blank" rel="noopener">${icons.building}${tr("find_hc")}<span class="go">↗</span></a></li>
+        <li><a href="${LINKS.judgments}" target="_blank" rel="noopener">${icons.doc}${tr("find_judg")}<span class="go">↗</span></a></li></ul>
+        <ul class="plain"><li>${tr("find_app")}</li><li>${esc(tr("find_sms"))}</li></ul></div>
+      <div class="card"><h2>${tr("find_wrong")}</h2><ul class="plain">${[1, 2, 3].map((i) => `<li>${tr("find_wrong_" + i)}</li>`).join("")}</ul></div>
+    </div><p class="note">${tr("not_advice")}</p></section>`;
+  $("#cnr").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const r = parseCNR($("#cnr-i").value);
+    const out = $("#cnr-out");
+    if (r.ok) {
+      out.className = "cnr-out ok";
+      out.innerHTML = `<b>✓ ${tr("cnr_ok")}</b><div class="mono">${esc(r.value)}</div><div>${esc(tr("cnr_parts", { st: r.state, di: r.district, es: r.establishment, se: r.serial, yr: r.year }))}</div>`;
+    } else {
+      out.className = "cnr-out bad";
+      out.textContent = r.error === "len" ? tr("cnr_len", { n: r.value.length }) : tr(r.error === "year" ? "cnr_year" : "cnr_format");
+    }
+  });
+}
+
+async function pageDecode(params) {
+  const q = params.get("q") || "";
+  const pp = await purposes();
+  // Real shares: aggregate recorded purposes of pending cases by decoded stage.
+  const byStage = {};
+  if (pp) for (const r of pp.purposes) { const st = decodePurpose(r.text); const k = st ? st.key : "_other"; byStage[k] = (byStage[k] || 0) + r.n; }
+  const total = pp?.total_pending_with_purpose || 0;
+  const top = Object.entries(byStage).filter(([k]) => k !== "_other").sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const stageBy = Object.fromEntries(STAGES.map((s) => [s.key, s]));
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("decode_title"))}
+    <p class="lead">${tr("decode_intro")}</p>
+    <form id="dq" class="inline-form wide"><label class="sr-only" for="dq-i">${tr("decode_title")}</label>
+      <input id="dq-i" class="text" list="dq-list" placeholder="${esc(tr("decode_ph"))}" value="${esc(q)}" autocomplete="off">
+      <datalist id="dq-list">${(pp?.purposes || []).slice(0, 80).map((r) => `<option value="${esc(r.text)}">`).join("")}</datalist>
+      <button class="btn btn-red">${tr("decode_go")}</button></form>
+    <div id="dq-out" class="result" aria-live="polite"></div>
+    ${top.length ? `<div class="card" style="margin-top:22px"><h2>${tr("decode_common")}</h2><div class="hbars">
+      ${top.map(([k, n]) => `<a class="hbar" href="#/decode?q=${encodeURIComponent(stageText(stageBy[k]).t)}&k=${k}"><span class="hb-l">${esc(stageText(stageBy[k]).t)}</span>
+        <span class="hb-t"><span style="width:${((n / top[0][1]) * 100).toFixed(1)}%"></span></span><span class="hb-v">${pct(n / total)}</span></a>`).join("")}</div>
+      <p class="note">${tr("based_on", { n: fmtN(total) })} · ${esc(pp.note)}</p></div>` : ""}
+    <div class="card" style="margin-top:22px"><h2>${tr("decode_all")}</h2>
+      ${STAGES.map((st) => `<details><summary>${esc(stageText(st).t)}</summary><p>${esc(stageText(st).m)}</p><p class="note">${esc(stageText(st).n)}</p></details>`).join("")}</div>
+    <p class="note">${tr("not_advice")}</p></section>`;
+  $("#dq").addEventListener("submit", (e) => { e.preventDefault(); go("/decode", { q: $("#dq-i").value.trim() }); });
+  if (!q) return;
+  const st = params.get("k") ? stageBy[params.get("k")] : decodePurpose(q);
+  const out = $("#dq-out");
+  if (!st) { out.innerHTML = `<div class="card"><p>${tr("decode_none")}</p><a class="btn btn-dark" href="#/lawyer">${tr("ns_lawyer")} <span class="arrow">→</span></a></div>`; return; }
+  const tx = stageText(st);
+  const share = total && byStage[st.key] ? tr("decode_share", { share: pct(byStage[st.key] / total), stage: tx.t }) : "";
+  const g = st.group === "any" ? null : st.group;
+  const qs = g ? (QUESTIONS[g][state.lang] || QUESTIONS[g].en) : QUESTIONS.any[state.lang].slice(0, 3);
+  out.innerHTML = `<div class="card decode"><div class="kicker">“${esc(q)}”</div><h2>${esc(tx.t)}</h2>
+    <h3>${tr("decode_means")}</h3><p>${esc(tx.m)}</p>
+    <h3>${tr("decode_next")}</h3><p>${esc(tx.n)}</p>
+    <h3>${tr("decode_ask")}</h3><ul class="plain">${qs.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    ${share ? `<p class="note">${esc(share)}</p>` : ""}
+    <a class="btn btn-dark" href="#/lawyer${g ? `?g=${g}` : ""}">${tr("ns_lawyer")} <span class="arrow">→</span></a></div>`;
+}
+
+function pageLawyer(params) {
+  const g = STAGE_GROUPS.includes(params.get("g")) ? params.get("g") : "evidence";
+  const qs = questionsFor(g, state.lang);
+  const label = (k) => GROUP_LABEL[k][state.lang] || GROUP_LABEL[k].en;
+  const text = `${tr("lawyer_title")} (${label(g)}):\n` + qs.map((x, i) => `${i + 1}. ${x}`).join("\n");
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("lawyer_title"))}
+    <p class="lead">${tr("lawyer_intro")}</p>
+    <div class="chips" aria-label="${tr("lawyer_stage")}">${STAGE_GROUPS.map((k) => `<a aria-current="${k === g ? "true" : "false"}" class="chip ${k === g ? "on" : ""}" href="#/lawyer?g=${k}">${esc(label(k))}</a>`).join("")}</div>
+    <div class="card printable"><h2>${esc(label(g))}</h2>
+      <ol class="checklist">${qs.map((x, i) => `<li><input type="checkbox" id="q${i}"><label for="q${i}">${esc(x)}</label></li>`).join("")}</ol>
+      <div class="form-actions no-print">
+        <button class="btn btn-red" id="l-print" type="button">${tr("lawyer_print")}</button>
+        <a class="btn btn-dark" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">${tr("lawyer_share")}</a>
+        <button class="btn btn-ghost" id="l-copy" type="button">${tr("lawyer_copy")}</button></div>
+      <p class="note">${tr("lawyer_tip")}</p></div>
+    <p class="note">${tr("not_advice")}</p></section>`;
+  $("#l-print").addEventListener("click", () => window.print());
+  $("#l-copy").addEventListener("click", async (e) => {
+    try { await navigator.clipboard.writeText(text); e.target.textContent = tr("copied"); } catch (_) { /* clipboard blocked */ }
+  });
+}
+
+async function pageCost(params) {
+  const s = params.get("s") || "", d = params.get("d") || "", c = params.get("c") || "";
+  const kindOf = (cat) => (CRIMINAL_CATS.has(cat) ? "criminal" : "civil");
+  const def = (cat) => DAKSH[kindOf(cat)].spend + DAKSH[kindOf(cat)].lost;
+  const per = params.get("per") != null && params.get("per") !== "" ? Math.max(0, Number(params.get("per")) || 0) : def(c);
+  const ppl = Math.max(1, Math.min(20, Number(params.get("p")) || 1));
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("cost_title"))}
+    <p class="lead">${tr("cost_intro")}</p>
+    <form id="f">${selectorHTML({ s, d, c })}
+      <div class="form-grid" style="margin-top:14px">
+        <div class="field"><label for="i-per">${tr("cost_perday")}</label><input class="text" type="number" min="0" step="50" id="i-per" value="${per}"></div>
+        <div class="field"><label for="i-p">${tr("cost_people")}</label><input class="text" type="number" min="1" max="20" id="i-p" value="${ppl}"></div></div>
+      <p class="note" id="def-note"></p>
+      <div class="form-actions"><button class="btn btn-red">${tr("cost_go")} <span class="arrow">→</span></button></div>
+      <ul class="errors" id="errs"></ul></form><div id="out" class="result"></div></section>`;
+  wireSelectors($("#main"));
+  let dirty = params.get("per") != null;
+  const showDef = (cat) => { const k = kindOf(cat); $("#def-note").textContent = tr("cost_default", { kind: tr("cost_kind_" + k), spend: DAKSH[k].spend, lost: DAKSH[k].lost }); };
+  showDef(c);
+  $("#i-per").addEventListener("input", () => { dirty = true; });
+  $("#sel-c").addEventListener("change", (e) => { showDef(e.target.value); if (!dirty) $("#i-per").value = def(e.target.value); });
+  $("#f").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = readSel();
+    if (!v.s || !v.d || !v.c) { $("#errs").innerHTML = `<li>${tr("err_select")}</li>`; return; }
+    go("/cost", { ...v, per: $("#i-per").value, p: $("#i-p").value });
+  });
+  if (!(s && d && c)) return;
+  const { level, stats, district } = await statsFor(s, d, c);
+  const tt = stats?.time_to_decision_days || {};
+  const beyond = tt.p50 == null;
+  const dur = beyond ? tt.max_followup : tt.p50;
+  const gap = stats?.next_hearing_gap_days?.p50;
+  const est = costEstimate({ durationDays: dur, gapDays: gap, perDay: per, people: ppl });
+  if (!est) { $("#out").innerHTML = `<p>${tr("suppressed")}</p>`; return; }
+  const money = "₹" + Math.round(est.total).toLocaleString("en-IN");
+  $("#out").innerHTML = `<div class="crumb">${esc(catName(c))} · ${esc(district?.name || "")}, ${esc(district?.state_name || "")}</div>
+    <div class="card cost"><div class="cost-big">${esc(tr("cost_money", { money }))}</div>
+      <div class="cost-sub">${esc(tr("cost_result", { h: fmtN(est.hearings) }))}</div>
+      <p>${esc(tr("cost_explain", { cat: catName(c), dur: formatDuration(dur, state.lang), gap: formatDuration(est.gap, state.lang), h: fmtN(est.hearings), per: fmtN(per), p: ppl }))}</p>
+      ${beyond ? `<p class="note">${esc(tr("cost_beyond", { dur: formatDuration(dur, state.lang) }))}</p>` : ""}
+      <p class="note">${tr("cost_caveat")} <a href="${DAKSH.source}" target="_blank" rel="noopener">DAKSH</a></p></div>
+    ${levelNote(level, stats.n)}<p class="note">${tr("not_advice")}</p>`;
+}
+
+async function pageRights(params) {
+  const s = params.get("s") || "", d = params.get("d") || "";
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("rights_title"))}
+    <div class="grid-2 even">
+      <div class="card"><h2>${tr("aid_title")}</h2><p>${tr("aid_intro")}</p>
+        <ul class="ticks">${tr("aid_list").split("|").map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+        <p><b>${tr("aid_how")}</b></p>
+        <ul class="links"><li><a href="tel:15100">${icons.scales}NALSA 15100<span class="go">☎</span></a></li>
+        <li><a href="${LINKS.dlsa}" target="_blank" rel="noopener">${icons.globe}nalsa.gov.in<span class="go">↗</span></a></li></ul></div>
+      <div class="card"><h2>${tr("limits_title")}</h2><p class="note">${tr("limits_intro")}</p>
+        <ul class="plain">${["lim_ws", "lim_adj", "lim_crim", "lim_maint", "lim_cheque", "lim_undertrial", "lim_hc"].map((k) => `<li>${esc(tr(k))}</li>`).join("")}</ul></div>
+    </div>
+    <div class="card"><h2>${tr("real_title")}</h2>
+      <form id="f">${selectorHTML({ withCategory: false, s, d })}<div class="form-actions"><button class="btn btn-red">${tr("real_pick")} <span class="arrow">→</span></button></div></form>
+      <div id="out"></div></div>
+    <p class="note">${tr("not_advice")}</p></section>`;
+  wireSelectors($("#main"));
+  $("#f").addEventListener("submit", (e) => { e.preventDefault(); const v = readSel(); if (v.s) go("/rights", { s: v.s, d: v.d }); });
+  if (!s) return;
+  const rows = [["maintenance", "target_maint"], ["cheque_bounce", "target_cheque"], ["bail", "target_bail"]];
+  const res = await Promise.all(rows.map(([c]) => statsFor(s, d, c)));
+  const lv = { district: tr("level_district"), state: tr("level_state"), national: tr("level_national") };
+  $("#out").innerHTML = `<div class="table-scroll"><table class="data" style="margin-top:14px"><thead><tr><th>${tr("col_type")}</th><th>${tr("real_cat_target")}</th><th class="num">${tr("real_cat_median")}</th><th class="num">${tr("col_n")}</th></tr></thead><tbody>
+    ${rows.map(([c, tk], i) => { const r = res[i]; const st = r.stats;
+      return `<tr><td>${esc(catName(c))}<div class="note">${esc(st ? tr("stats_from", { level: lv[r.level] || "" }) : "")}</div></td><td>${tr(tk)}</td>
+        <td class="num">${st ? esc(headlineOrBeyond(st.time_to_decision_days?.p50, st)) : "–"}</td><td class="num">${st ? fmtN(st.n) : "–"}</td></tr>`; }).join("")}
+    </tbody></table></div>${(res[2].stats?.time_to_decision_days?.p50 ?? 0) > 182 || (res[2].stats && res[2].stats.time_to_decision_days?.p50 == null) ? `<p class="note warn">${esc(tr("bail_note"))}</p>` : ""}<p class="note">${dataYearsNote()}</p>`;
+}
+
 /* ---------------- router ---------------- */
 async function render() {
   const { path, params } = parseHash();
@@ -375,7 +576,8 @@ async function render() {
     return;
   }
   renderChrome(path);
-  const pages = { "/": pageHome, "/estimate": pageEstimate, "/check": pageCheck, "/district": pageDistrict, "/method": pageMethod, "/about": pageAbout };
+  const pages = { "/": pageHome, "/estimate": pageEstimate, "/check": pageCheck, "/district": pageDistrict, "/method": pageMethod, "/about": pageAbout,
+    "/help": pageHelp, "/find": pageFind, "/decode": pageDecode, "/lawyer": pageLawyer, "/cost": pageCost, "/rights": pageRights };
   const fn = pages[path] || pageHome;
   try { await fn(params); } catch (e) {
     $("#main").innerHTML = `<section class="wrap page"><p>${tr("no_data")}</p><p class="note">${esc(e.message)}</p></section>`;

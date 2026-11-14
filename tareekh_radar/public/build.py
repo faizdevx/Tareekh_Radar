@@ -142,7 +142,8 @@ class _NationalAcc:
         return res
 
 
-def _load_state(files: list[Path], st: str, cfg: dict, mapping_counts: dict) -> tuple[pd.DataFrame, int]:
+def _load_state(files: list[Path], st: str, cfg: dict, mapping_counts: dict,
+                min_filing_year: int | None = None) -> tuple[pd.DataFrame, int]:
     """Clean one file at a time for a state and keep only slim, categorical columns."""
     slims, unknown = [], 0
     for f in files:
@@ -160,6 +161,8 @@ def _load_state(files: list[Path], st: str, cfg: dict, mapping_counts: dict) -> 
         unknown += int((cases["case_status"] == "UNKNOWN").sum())
         for k, n in cases.groupby([cases["case_type_raw"].map(type_key), "case_category"]).size().items():
             mapping_counts[k] = mapping_counts.get(k, 0) + int(n)
+        if min_filing_year is not None:
+            cases = cases[pd.to_numeric(cases["filing_year"], errors="coerce") >= min_filing_year]
         slim = cases[SLIM].copy()
         del cases
         for c in CAT_COLS:
@@ -174,7 +177,9 @@ def _load_state(files: list[Path], st: str, cfg: dict, mapping_counts: dict) -> 
 
 
 def build_site_data(extract_paths: list[str | Path], out_dir: str | Path, cfg: dict, min_n: int = 30,
-                    max_month: int = 132) -> dict:
+                    max_month: int = 132, min_filing_year: int | None = None) -> dict:
+    """min_filing_year: drop earlier filing cohorts. Older DDL cohorts under-represent cases that were
+    disposed quickly (case counts per filing year rise ~3x from 2010 to 2018), which biases durations upward."""
     out = Path(out_dir)
     files = [Path(p) for p in extract_paths]
     for f in files:
@@ -186,7 +191,7 @@ def build_site_data(extract_paths: list[str | Path], out_dir: str | Path, cfg: d
     totals = {"cases": 0, "excluded_status_unknown": 0}
     years: set[str] = set()
     for st in states:
-        cases, unknown = _load_state(files, st, cfg, mapping_counts)
+        cases, unknown = _load_state(files, st, cfg, mapping_counts, min_filing_year)
         if cases.empty:
             continue
         years.update(str(y) for y in cases["filing_year"].dropna().unique().tolist())
@@ -242,6 +247,7 @@ def build_site_data(extract_paths: list[str | Path], out_dir: str | Path, cfg: d
                    "categories": len([c for c in national if c != "other"]),
                    "excluded_status_unknown": totals["excluded_status_unknown"]},
         "min_n": min_n,
+        "min_filing_year": min_filing_year,
         "categories": CATEGORIES,
         "outcome_groups": OUTCOME_GROUPS,
         "example": None,
@@ -249,6 +255,7 @@ def build_site_data(extract_paths: list[str | Path], out_dir: str | Path, cfg: d
     }
     _write(out / "meta.json", meta)
     meta["example"] = choose_example(out)
+    build_purposes(files, out)
     return meta
 
 
@@ -276,3 +283,33 @@ def choose_example(out_dir: str | Path, categories=("cheque_bounce", "motor_acci
     meta["example"] = best[1] if best else None
     _write(meta_path, meta)
     return meta["example"]
+
+
+def normalize_purpose(text: str) -> str:
+    """Same normalisation as site/js/help.js normPurpose: lowercase, keep a-z 0-9 and '/', collapse spaces."""
+    import re
+
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9/ ]+", " ", str(text).lower())).strip()
+
+
+def build_purposes(extract_paths: list[str | Path], out_dir: str | Path, top: int = 400) -> dict:
+    """Most common recorded hearing purposes ("stage") among pending cases, for the order-sheet decoder.
+
+    Counts are real: the purpose recorded for each case still pending when DDL collected the data.
+    """
+    import duckdb
+
+    files = [str(Path(p)) for p in extract_paths]
+    con = duckdb.connect()
+    con.execute("SET memory_limit='1500MB'")
+    norm = ("trim(regexp_replace(regexp_replace(lower(current_purpose), '[^a-z0-9/ ]+', ' ', 'g'), "
+            r"'\s+', ' ', 'g'))")
+    base = f"FROM read_parquet({files!r}) WHERE disposal_date IS NULL AND current_purpose IS NOT NULL"
+    total = con.execute(f"SELECT count(*) {base}").fetchone()[0]
+    rows = con.execute(f"SELECT {norm} AS p, count(*) AS n {base} GROUP BY 1 HAVING p <> '' "
+                       f"ORDER BY n DESC, p LIMIT {int(top)}").fetchall()
+    payload = {"total_pending_with_purpose": int(total),
+               "note": "Recorded purpose of the next listing for cases pending at data collection (normalised text).",
+               "purposes": [{"text": p, "n": int(n)} for p, n in rows]}
+    _write(Path(out_dir) / "purposes.json", payload)
+    return payload
