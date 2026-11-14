@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addPeriod, applySteps, buildICS, caseSummary, daysBetween, loadDiary, sanitizeDiary, saveDiary } from "../js/diary.js";
+import { addPeriod, applySteps, buildICS, caseSummary, daysBetween, loadDiary, mergeCases, sanitizeDiary, saveDiary } from "../js/diary.js";
 import { DEADLINES } from "../js/help.js";
 
 const memStore = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) }; };
@@ -58,4 +58,14 @@ test("every deadline has steps, a law and both languages", () => {
     for (const l of ["en", "hi"]) assert.ok(d[l].t && d[l].from, `${d.key}.${l}`);
     assert.match(applySteps("2026-01-15", d.steps), /^\d{4}-\d{2}-\d{2}$/);
   }
+});
+
+test("merge: newer wins, device-only cases are pushed, account-only cases kept", () => {
+  const local = [{ id: "a", label: "A-local", updated: 20 }, { id: "b", label: "B-local-new", updated: 5 }, { id: "c", label: "C-only-here", updated: 0 }];
+  const remote = [{ id: "a", label: "A-remote", updated: 10 }, { id: "b", label: "B-remote", updated: 9 }, { id: "d", label: "D-only-cloud", updated: 3 }];
+  const m = mergeCases(local, remote);
+  const label = Object.fromEntries(m.cases.map((c) => [c.id, c.label]));
+  assert.deepEqual(label, { a: "A-local", b: "B-remote", c: "C-only-here", d: "D-only-cloud" });
+  assert.deepEqual(m.push.map((c) => c.id).sort(), ["a", "c"]);
+  assert.equal(sanitizeDiary({ cases: [{ id: "x", updated: 7 }, { id: "y", updated: "7" }] }).cases.map((c) => c.updated).join(), "7,0");
 });

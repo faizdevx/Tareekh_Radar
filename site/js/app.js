@@ -4,7 +4,7 @@ import { pickStats, checkCase, formatDuration, formatHeadline, pct, shareDecided
 import { STAGES, decodePurpose, STAGE_GROUPS, GROUP_LABEL, questionsFor, QUESTIONS, parseCNR, DAKSH, CRIMINAL_CATS,
   costEstimate, approxPercentile, nextSteps, DEADLINES } from "./help.js";
 import { loadDiary, saveDiary, sanitizeDiary, newId, sortedEntries, caseSummary, daysBetween, todayISO, buildICS, download,
-  applySteps, ADJ_BY } from "./diary.js";
+  applySteps, ADJ_BY, mergeCases } from "./diary.js";
 
 const OUTCOME_COLORS = {
   compromise: "#4b8a3c", lok_adalat: "#8fb35d", allowed: "#2f6f8f", dismissed: "#b8ad9e", withdrawn: "#ddd3c4",
@@ -66,11 +66,12 @@ function renderChrome(path) {
   const bn = [["/", "nav_home", icons.home], ["/diary", "nav_diary", icons.book], ["/check", "nav_check_short", icons.calsm], ["/district", "nav_districts", icons.barsm], ["/help", "nav_help", icons.helpsm]];
   $("#bottom-nav").innerHTML = bn.map(([p, k, ic]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${ic}<span>${tr(k)}</span></a>`).join("");
   $("#disclaimer").textContent = tr("disclaimer");
+  paintChip();
   const m = state.meta;
   const years = m ? yearSpan(m.filing_years) : "";
   $("#footer").innerHTML = `<a class="brand" href="#/">${logo("#fff")}<span><div class="brand-name">${tr("brand")}</div><div class="brand-hi">${tr("brand_hi")}</div></span></a>
     <div class="fnote">${tr("footer_note")} ${years ? `(${esc(years)})` : ""}</div>
-    <nav><a href="#/about">${tr("nav_about")}</a><a href="#/method">${tr("nav_method")}</a><a href="${m ? esc(m.source_url) : "#/method"}" rel="noopener">Data</a></nav>
+    <nav><a href="#/about">${tr("nav_about")}</a><a href="#/method">${tr("nav_method")}</a><a href="#/privacy">${tr("privacy_title")}</a><a href="${m ? esc(m.source_url) : "#/method"}" rel="noopener">Data</a></nav>
     <div class="footer-art">${courthouse()}</div>
     <div class="src">${m ? `Data: ${esc(m.source)}. ${esc(m.license)}` : ""}</div>`;
 }
@@ -570,10 +571,136 @@ async function pageRights(params) {
 }
 
 
-/* ---------------- my case diary (stored only in this browser) ---------------- */
+
+/* ---------------- account + sync (Firebase; optional) ---------------- */
+const lastJson = new Map(); // case id -> JSON at last change, to know what to stamp and push
+const snap = (c) => JSON.stringify({ ...c, updated: 0 });
+const sync = { cloud: null, off: false, ready: false, user: null, status: "", at: 0, pushed: new Map() };
+const D = () => {
+  if (!diary) { diary = loadDiary(); diary.cases.forEach((c) => lastJson.set(c.id, snap(c))); }
+  return diary;
+};
+function stamp() {
+  for (const c of D().cases) { const j = snap(c); if (lastJson.get(c.id) !== j) { c.updated = Date.now(); lastJson.set(c.id, j); } }
+}
+function persist() { stamp(); if (!saveDiary(diary)) alert(tr("diary_save_fail")); cloudPush(); }
+
+async function cloudPush() {
+  const u = sync.user;
+  if (!sync.cloud || !u || !u.emailVerified) return;
+  try {
+    const ids = new Set(D().cases.map((c) => c.id));
+    for (const c of D().cases) if (sync.pushed.get(c.id) !== c.updated) { await sync.cloud.putCase(u.uid, c); sync.pushed.set(c.id, c.updated); }
+    for (const id of [...sync.pushed.keys()]) if (!ids.has(id)) { await sync.cloud.removeCase(u.uid, id); sync.pushed.delete(id); }
+    sync.status = "ok"; sync.at = Date.now();
+  } catch (e) { sync.status = "error"; console.warn("sync failed", e?.code || e); }
+  paintChip();
+}
+async function onUser(u) {
+  sync.user = u; sync.ready = true; sync.pushed.clear(); sync.status = "";
+  if (u && u.emailVerified) {
+    try {
+      const remote = sanitizeDiary({ cases: await sync.cloud.pull(u.uid) })?.cases || [];
+      const m = mergeCases(D().cases, remote);
+      diary.cases = m.cases;
+      remote.forEach((c) => sync.pushed.set(c.id, c.updated));
+      m.cases.forEach((c) => lastJson.set(c.id, snap(c)));
+      saveDiary(diary);
+      await cloudPush();
+    } catch (e) { sync.status = "error"; console.warn("sync failed", e?.code || e); }
+  }
+  paintChip();
+  render();
+}
+function paintChip() {
+  const a = $("#acct"); if (!a) return;
+  const u = sync.user;
+  a.textContent = u ? (u.email || "").split("@")[0].slice(0, 14) || tr("acct_me") : tr("acct_signin");
+  a.classList.toggle("on", !!u);
+}
+function authMsg(e) {
+  const k = "ae_" + String(e?.code || "").replace("auth/", "").replace(/-/g, "_");
+  const s = tr(k);
+  return s === k ? tr("ae_other") : s;
+}
+
+function pageAccount() {
+  if (sync.off) { $("#main").innerHTML = `<section class="wrap page">${backHead(tr("acct_title"), "#/")}<p>${tr("acct_unavailable")}</p></section>`; return; }
+  if (!sync.ready) { $("#main").innerHTML = `<section class="wrap page">${backHead(tr("acct_title"), "#/")}<p class="note">${tr("loading")}</p></section>`; return; }
+  const u = sync.user;
+  if (!u) {
+    $("#main").innerHTML = `<section class="wrap page">${backHead(tr("acct_title"), "#/")}
+      <p class="lead">${tr("acct_intro")}</p><div class="notice">${tr("acct_local_ok")}</div>
+      <div class="card"><label class="consent"><input type="checkbox" id="consent"><span>${tr("acct_consent")} <a href="#/privacy">${tr("privacy_title")}</a></span></label>
+        <div class="form-actions"><button class="btn btn-dark" id="g" type="button">${tr("acct_google")}</button></div>
+        <p class="note" style="text-align:center">${tr("acct_or")}</p>
+        <form id="ef"><div class="form-grid">
+          <div class="field"><label for="a-email">${tr("acct_email")}</label><input class="text" id="a-email" type="email" autocomplete="email" required></div>
+          <div class="field"><label for="a-pw">${tr("acct_password")}</label><input class="text" id="a-pw" type="password" autocomplete="current-password" minlength="8"></div></div>
+          <div class="form-actions"><button class="btn btn-red" id="si">${tr("acct_signin")}</button>
+            <button class="btn btn-ghost" id="su" type="button">${tr("acct_create")}</button>
+            <button class="link-btn" id="rp" type="button">${tr("acct_forgot")}</button></div>
+          <p class="note">${tr("acct_pw_hint")}</p><ul class="errors" id="errs" aria-live="polite"></ul><p class="note ok" id="info" aria-live="polite"></p></form></div>
+      <p class="note"><a href="#/privacy">${tr("privacy_title")}</a></p></section>`;
+    const err = (m) => { $("#errs").innerHTML = m ? `<li>${esc(m)}</li>` : ""; $("#info").textContent = ""; };
+    const needConsent = () => { if ($("#consent").checked) return false; err(tr("acct_need_consent")); return true; };
+    const run = async (fn) => { err(""); try { await fn(); } catch (e) { err(authMsg(e)); } };
+    $("#g").addEventListener("click", () => { if (!needConsent()) run(() => sync.cloud.signInGoogle().then(() => go("/diary"))); });
+    $("#ef").addEventListener("submit", (e) => { e.preventDefault(); run(() => sync.cloud.signIn($("#a-email").value.trim(), $("#a-pw").value).then(() => go("/diary"))); });
+    $("#su").addEventListener("click", () => {
+      if (!$("#ef").reportValidity() || needConsent()) return;
+      run(async () => { await sync.cloud.signUp($("#a-email").value.trim(), $("#a-pw").value); go("/account"); });
+    });
+    $("#rp").addEventListener("click", () => {
+      const em = $("#a-email").value.trim();
+      if (!em) { err(tr("ae_invalid_email")); return; }
+      run(async () => { await sync.cloud.resetPassword(em); $("#info").textContent = tr("acct_reset_sent"); });
+    });
+    return;
+  }
+  const n = D().cases.length;
+  const statusTxt = !u.emailVerified ? tr("acct_unverified") : sync.status === "error" ? tr("acct_sync_err") : tr("acct_sync_ok", { n, t: sync.at ? new Date(sync.at).toLocaleTimeString(state.lang === "hi" ? "hi-IN" : "en-IN") : "" });
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("acct_title"), "#/")}
+    <div class="card"><h2>${esc(u.email || "")}</h2><p class="${sync.status === "error" || !u.emailVerified ? "warn" : "ok"}">${esc(statusTxt)}</p>
+      ${u.emailVerified ? "" : `<p>${tr("acct_verify_help", { e: esc(u.email) })}</p><div class="form-actions"><button class="btn btn-red" id="vr" type="button">${tr("acct_verified_btn")}</button>
+        <button class="btn btn-ghost" id="vs" type="button">${tr("acct_resend")}</button></div>`}
+      <p class="note" id="info" aria-live="polite"></p><ul class="errors" id="errs" aria-live="polite"></ul></div>
+    <div class="form-actions"><a class="btn btn-dark" href="#/diary">${tr("nav_diary")}</a><button class="btn btn-ghost" id="out" type="button">${tr("acct_signout")}</button></div>
+    <div class="card danger-zone" style="margin-top:22px"><h2>${tr("acct_delete_t")}</h2><p>${tr("acct_delete_p")}</p>
+      <button class="btn btn-ghost danger" id="del" type="button">${tr("acct_delete")}</button></div>
+    <p class="note"><a href="#/privacy">${tr("privacy_title")}</a></p></section>`;
+  const err = (m) => { $("#errs").innerHTML = m ? `<li>${esc(m)}</li>` : ""; };
+  $("#out").addEventListener("click", () => sync.cloud.logout());
+  $("#vr")?.addEventListener("click", async () => { try { await onUser(await sync.cloud.refreshUser()); if (!sync.user.emailVerified) $("#info").textContent = tr("acct_still_unverified"); } catch (e) { err(authMsg(e)); } });
+  $("#vs")?.addEventListener("click", async () => { try { await sync.cloud.resendVerification(); $("#info").textContent = tr("acct_resent"); } catch (e) { err(authMsg(e)); } });
+  $("#del").addEventListener("click", async () => {
+    if (!confirm(tr("acct_delete_q"))) return;
+    try { await sync.cloud.deleteAccount(); alert(tr("acct_deleted")); go("/"); }
+    catch (e) { err(e?.code === "auth/requires-recent-login" ? tr("acct_reauth") : authMsg(e)); }
+  });
+}
+
+function pagePrivacy() {
+  const hi = state.lang === "hi";
+  $("#main").innerHTML = `<section class="wrap page prose"><h1>${tr("privacy_title")}</h1>
+  ${hi ? `<p><b>सारांश:</b> खाते के बिना आपकी डायरी केवल आपके डिवाइस पर रहती है। खाता बनाने पर आपका ईमेल और आपकी केस डायरी (मामले के नाम, तारीखें, नोट्स) Google Firebase (मुंबई क्षेत्र) में सहेजी जाती है ताकि वह दूसरे डिवाइस पर खुल सके। कोई विज्ञापन, विश्लेषण या डेटा बिक्री नहीं। आप ऐप में ही खाता और सारा क्लाउड डेटा हटा सकते हैं। यह नोटिस सरल भाषा का मसौदा है और किसी वकील ने इसकी समीक्षा नहीं की है। विवरण नीचे अंग्रेज़ी में है।</p>` : ""}
+  <p class="note">Last updated 14 November 2026. This is a plain-language draft and has not been reviewed by a lawyer.</p>
+  <h2>Who runs this</h2><p>Case Clock is a free, non-commercial project run by an individual (the "project owner"). Contact for privacy questions or requests: <a href="https://github.com/faizdevx/Tareekh_Radar/issues" rel="noopener">open an issue on the project's GitHub page</a>. Please do not put case details in a public issue.</p>
+  <h2>Without an account</h2><p>The delay checker, estimates, deadline calculator and all other tools run in your browser. Your case diary is saved only on your device. Nothing you type is sent to us.</p>
+  <h2>With an account: what we store</h2><ul><li>Your email address and sign-in method (Google or email and password).</li><li>The case diary you choose to save: case names, optional CNR, court, filing date, hearing dates, purposes, adjournment notes and anything you write in your notes.</li></ul>
+  <p>We do not collect your name, phone number, location, device identifiers or browsing activity. There are no advertising or analytics tools on this site.</p>
+  <h2>Why</h2><p>Only to let you sign in and open your diary on more than one device. We do not use it for anything else, and we do not sell or share it.</p>
+  <h2>Where and who</h2><p>Accounts and diary data are held by Google Firebase (Authentication and Cloud Firestore) in the Mumbai region (asia-south1). Google acts as our service provider. Data is encrypted in transit. Access rules allow each signed-in user to read and write only their own diary. The project owner can technically open the database through the Firebase console but does not read users' diaries.</p>
+  <h2>Please be careful what you write</h2><p>Do not enter other people's names, phone numbers, addresses or identity numbers, or anything you would not want stored online. Case names can be nicknames ("Cheque case 1"). If you want nothing stored online, do not create an account.</p>
+  <h2>Your choices</h2><ul><li>Use every tool without an account.</li><li>Export a backup file of your diary at any time (My cases → Export backup).</li><li>Delete your account and all your cloud data yourself, in the app (Account → Delete my account and cloud data). A copy kept on your own device is not touched.</li><li>Withdraw consent by deleting your account. To ask for a correction or deletion another way, contact us as above.</li></ul>
+  <h2>How long</h2><p>Until you delete it.</p>
+  <h2>If something goes wrong</h2><p>If we learn of a breach affecting your data, we will tell affected users and the authorities as the law requires. No online service can promise perfect security.</p>
+  <h2>Children</h2><p>This service is meant for adults. Please do not create an account if you are under 18.</p>
+  <h2>Changes</h2><p>If this notice changes in a way that matters, we will say so on this page and in the sign-in screen.</p></section>`;
+}
+
+/* ---------------- my case diary (this device, synced to your account if you sign in) ---------------- */
 let diary = null;
-const D = () => (diary ??= loadDiary());
-function persist() { if (!saveDiary(diary)) alert(tr("diary_save_fail")); }
 const fmtDate = (iso) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString(state.lang === "hi" ? "hi-IN" : "en-IN",
   { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "–");
 function dueText(next) {
@@ -776,7 +903,7 @@ async function render() {
   renderChrome(path);
   const pages = { "/": pageHome, "/estimate": pageEstimate, "/check": pageCheck, "/district": pageDistrict, "/method": pageMethod, "/about": pageAbout,
     "/help": pageHelp, "/find": pageFind, "/decode": pageDecode, "/lawyer": pageLawyer, "/cost": pageCost, "/rights": pageRights,
-    "/diary": pageDiary, "/case": pageCase, "/deadlines": pageDeadlines };
+    "/diary": pageDiary, "/case": pageCase, "/deadlines": pageDeadlines, "/account": pageAccount, "/privacy": pagePrivacy };
   const fn = pages[path] || pageHome;
   try { await fn(params); } catch (e) {
     $("#main").innerHTML = `<section class="wrap page"><p>${tr("no_data")}</p><p class="note">${esc(e.message)}</p></section>`;
@@ -785,6 +912,7 @@ async function render() {
 }
 
 state.lang = loadLang();
+import("./cloud.js").then((m) => { sync.cloud = m; m.watch(onUser); }).catch((e) => { sync.off = true; console.warn("cloud unavailable", e); });
 $("#lang-toggle").addEventListener("click", () => { state.lang = state.lang === "en" ? "hi" : "en"; saveLang(state.lang); render(); });
 window.addEventListener("hashchange", render);
 render();

@@ -38,6 +38,13 @@ Records per filing year in the DDL files: 2010 4.28M, 2011 5.21M, 2012 6.40M, 20
 - Reminders are RFC 5545 all-day events with an alarm 12 hours before, generated in the browser.
 - Deadlines: start date + statutory period (calendar months clamped at month end). The start day is excluded (Limitation Act s.12(1)); court holidays (s.4), certified-copy time (s.12(2)) and condonation (s.5) are explained, not computed. Cheque-bounce complaint = notice receipt + 15 days to pay, then one month from the next day (NI Act s.138(c), s.142(1)(b)).
 
+## Accounts and sync (optional)
+- Firebase Authentication (email/password with verification, Google) and Cloud Firestore (asia-south1). Documents live at `users/{uid}/cases/{caseId}` with fields `label, cnr, s, d, c, filed, court, entries, updated`.
+- Rules (published in the console; keep in sync with `site/js/cloud.js putCase`): owner-only read/delete; create/update only by the owner, only those keys, at most 2,000 entries; all other paths denied.
+- Sync: on sign-in (verified email) the account's cases are pulled, sanitised and merged with the device's (`mergeCases`: newer `updated` wins; device-only cases are pushed). Later edits stamp `updated` and push. Deleting a case locally deletes it in the account. Failures leave the device copy intact.
+- Delete account: removes every case document, then the login (Firebase may ask for a fresh sign-in; the UI says so).
+- The Firebase web config is public by design; protection is the rules, not the key.
+
 ## Collection date (why there is no "today" in the historical data)
 DDL does not publish when each record was collected. In the 2010–2011 files, pending cases' last listings cluster around **Jan–Feb 2019**, and a minority were updated in **2020**. A single snapshot date would therefore be wrong for most records. An earlier version used the 99.9th percentile of listing dates (about Sept 2020), and it made 81% of Maharashtra's pending cases look unlisted for over a year. The fix is that nothing in the public statistics depends on a collection date:
 - durations of pending cases end at their own last listing;

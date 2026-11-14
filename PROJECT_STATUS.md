@@ -36,7 +36,8 @@ _Last updated: 2026-11-14_
 - GitHub Pages enabled: https://faizdevx.github.io/Tareekh_Radar/
 - Tests: 53 pytest, 15 node.
 - **Case diary + reminders + deadline calculator** (`site/js/diary.js`): local-only storage (no login by decision: no server holds anyone's case data), import sanitised as a trust boundary, .ics reminders, printable summary, stuck check against real data; 12 statutory deadlines verified against the Limitation Act, NI Act, CPC, MV Act, CPA 2019 and RBI. Tests: 21 node.
-- Pending: human review of the category mapping, the stage glossary and the deadline list.
+- **Optional sign-in and cloud sync** (`site/js/cloud.js`, `firebase-config.js`): Firebase project `case-clock` (Spark plan, no billing). Email/password (verification required before anything syncs, 8+ char password policy enforced, enumeration protection on) and Google sign-in; `faizdevx.github.io` authorised; Firestore in Mumbai (asia-south1), production mode. Published rules: each user may read/write only `users/{uid}/cases/*`, with a key allowlist and an entries cap; everything else denied. Local-first: signed-out use is unchanged; sign-in merges device and account cases (newer `updated` wins), then pushes changes. Consent checkbox, privacy notice page (draft, not lawyer-reviewed) and in-app delete-account-and-data. The web config in the repo is public by design. Not yet exercised end to end with a real account.
+- Pending: human review of the category mapping, the stage glossary, the deadline list and the privacy notice; first real sign-in test; rules playground checks.
 
 ## Pending
 - **Human validation** of the top flags and the controls (`review-export`). No precision figure exists until this is done.

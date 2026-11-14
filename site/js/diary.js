@@ -22,12 +22,25 @@ export function sanitizeDiary(raw) {
   const cases = raw.cases.slice(0, 200).filter((c) => c && typeof c === "object").map((c) => ({
     id: str(c.id, 40) || newId(), label: str(c.label, 120) || "Case", cnr: str(c.cnr, 24).toUpperCase(),
     s: str(c.s, 4), d: str(c.d, 12), c: str(c.c, 40), filed: date(c.filed), court: str(c.court, 160),
+    updated: Number.isFinite(c.updated) ? c.updated : 0,
     entries: (Array.isArray(c.entries) ? c.entries : []).slice(0, 2000).filter((e) => e && date(e.date)).map((e) => ({
       id: str(e.id, 40) || newId(), date: date(e.date), happened: str(e.happened, 2000), next: date(e.next),
       purpose: str(e.purpose, 200), adjBy: ADJ_BY.includes(e.adjBy) ? e.adjBy : "none",
     })),
   }));
   return { cases };
+}
+
+/** Merge this device's cases with the account's: the newer `updated` wins; `push` lists what the cloud is missing or has older. */
+export function mergeCases(local, remote) {
+  const by = new Map(remote.map((c) => [c.id, c]));
+  const out = new Map(by);
+  const push = [];
+  for (const c of local) {
+    const r = by.get(c.id);
+    if (!r || (c.updated || 0) > (r.updated || 0)) { out.set(c.id, c); push.push(c); }
+  }
+  return { cases: [...out.values()], push };
 }
 
 export const sortedEntries = (c) => [...(c.entries || [])].sort((a, b) => a.date.localeCompare(b.date));
