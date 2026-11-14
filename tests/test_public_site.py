@@ -115,3 +115,16 @@ def test_min_filing_year_filter(cfg, tmp_path):
     pd.DataFrame(rows).to_parquet(p, index=False)
     meta = build_site_data([p], tmp_path / "site", cfg, min_n=30, min_filing_year=2011)
     assert meta["totals"]["cases"] == 40 and meta["filing_years"] == ["2011"] and meta["min_filing_year"] == 2011
+
+
+def test_build_rankings_sorts_fastest_first(tmp_path):
+    from tareekh_radar.public.build import build_rankings
+
+    (tmp_path / "districts").mkdir()
+    for did, p50 in (("01-01", 300.0), ("01-02", 100.0), ("01-03", None)):
+        (tmp_path / "districts" / f"{did}.json").write_text(json.dumps({"id": did, "categories": {
+            "bail": {"n": 50, "suppressed": False, "time_to_decision_days": {"p50": p50}, "share_undecided_at_3y": 0.1},
+            "other": {"n": 5, "suppressed": True}}}), encoding="utf-8")
+    r = build_rankings(tmp_path)
+    assert [row[0] for row in r["categories"]["bail"]] == ["01-02", "01-01", "01-03"]
+    assert "other" not in r["categories"]

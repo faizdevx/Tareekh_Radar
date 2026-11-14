@@ -4,6 +4,7 @@ import { pickStats, checkCase, formatDuration, formatHeadline, pct, shareDecided
 import { buildPrompt, aiLinks, describeLeft } from "./ai.js";
 import { CARRY, DOCS, SETTLE, nextLokAdalat, parseOrderText } from "./prep.js";
 import { canSpeak, canListen, speak, listen } from "./voice.js";
+import { PROBLEMS, AID_QUESTIONS, AID_APPLY, aidEligible, NOTICES, buildNotice, JOURNEYS, buildQuiz, agenda, rankOf } from "./layer2.js";
 import { STAGES, decodePurpose, STAGE_GROUPS, GROUP_LABEL, questionsFor, QUESTIONS, parseCNR, DAKSH, CRIMINAL_CATS,
   costEstimate, approxPercentile, nextSteps, DEADLINES } from "./help.js";
 import { loadDiary, saveDiary, sanitizeDiary, newId, sortedEntries, caseSummary, daysBetween, todayISO, buildICS, download,
@@ -21,7 +22,7 @@ const LINKS = {
   judgments: "https://judgments.ecourts.gov.in/",
 };
 
-const state = { lang: "en", meta: null, national: null, states: {}, districts: {}, purposes: null };
+const state = { lang: "en", meta: null, national: null, states: {}, districts: {}, purposes: null, rankings: null };
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const tr = (k, v) => t(state.lang, k, v);
@@ -62,13 +63,18 @@ function renderChrome(path) {
   document.documentElement.lang = state.lang;
   $("#brand").innerHTML = `${logo()}<span><div class="brand-name">${tr("brand")}</div><div class="brand-hi">${tr("brand_hi")}</div></span>`;
   const nav = [["/diary", "nav_diary"], ["/check", "nav_check"], ["/estimate", "nav_estimate"], ["/district", "nav_districts"], ["/help", "nav_help"]];
-  const helpPaths = ["/help", "/find", "/decode", "/lawyer", "/cost", "/rights", "/deadlines"];
+  const helpPaths = ["/help", "/find", "/decode", "/lawyer", "/cost", "/rights", "/deadlines", "/before", "/aid", "/notices", "/journey", "/intake", "/poster", "/quiz", "/rankings", "/story", "/opendata"];
   const isActive = (p) => path === p || (p === "/help" && helpPaths.includes(path)) || (p === "/diary" && path === "/case");
   $("#main-nav").innerHTML = nav.map(([p, k]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${tr(k)}</a>`).join("");
   $("#lang-toggle").innerHTML = state.lang === "en" ? "<b>EN</b> / हिंदी" : "EN / <b>हिंदी</b>";
   const bn = [["/", "nav_home", icons.home], ["/diary", "nav_diary", icons.book], ["/check", "nav_check_short", icons.calsm], ["/help", "nav_help", icons.helpsm]];
   $("#bottom-nav").innerHTML = bn.map(([p, k, ic]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${ic}<span>${tr(k)}</span></a>`).join("");
   $("#disclaimer").textContent = tr("disclaimer");
+  for (const [id, cls] of [["#a11y-big", "big-text"], ["#a11y-hc", "hc"]]) $(id)?.addEventListener("click", (e) => {
+    const on = document.documentElement.classList.toggle(cls);
+    e.currentTarget.setAttribute("aria-pressed", on);
+    try { localStorage.setItem("cc-" + cls, on ? "1" : ""); } catch (_) { /* storage blocked */ }
+  });
   const fab = $("#fab-say"); if (fab) { fab.innerHTML = icons.speaker; fab.setAttribute("aria-label", tr("voice_read_page")); fab.title = tr("voice_read_page"); }
   paintChip();
   const m = state.meta;
@@ -76,6 +82,8 @@ function renderChrome(path) {
   $("#footer").innerHTML = `<a class="brand" href="#/">${logo("#fff")}<span><div class="brand-name">${tr("brand")}</div><div class="brand-hi">${tr("brand_hi")}</div></span></a>
     <div class="fnote">${tr("footer_note")} ${years ? `(${esc(years)})` : ""}</div>
     <nav><a href="#/about">${tr("nav_about")}</a><a href="#/method">${tr("nav_method")}</a><a href="#/privacy">${tr("privacy_title")}</a><a href="${m ? esc(m.source_url) : "#/method"}" rel="noopener">Data</a></nav>
+    <div class="a11y-bar"><button class="a11y" id="a11y-big" type="button" aria-pressed="${document.documentElement.classList.contains("big-text")}">A+ ${tr("a11y_big")}</button>
+      <button class="a11y" id="a11y-hc" type="button" aria-pressed="${document.documentElement.classList.contains("hc")}">◐ ${tr("a11y_hc")}</button></div>
     <div class="footer-art">${courthouse()}</div>
     <div class="src">${m ? `Data: ${esc(m.source)}. ${esc(m.license)}` : ""}</div>`;
 }
@@ -408,7 +416,14 @@ function stageText(st) { return st[state.lang] || st.en; }
 
 function pageHelp() {
   $("#main").innerHTML = `<section class="wrap page">${backHead(tr("help_title"), "#/")}
-    <p class="note">${tr("tools_sub")}</p>${toolsGrid()}</section>`;
+    <h2 class="section-title">${tr("hub_case")}</h2>${toolsGrid()}
+    <h2 class="section-title" style="margin-top:26px">${tr("hub_before")}</h2>
+    ${tileList([["#/before", tr("tile_before"), "search", 2], ["#/aid", tr("tile_aid"), "scalesc", 2], ["#/notices", tr("tile_notices"), "docc", 0], ["#/journey", tr("tile_journey"), "hg", 1]])}
+    <h2 class="section-title" style="margin-top:26px">${tr("hub_helpers")}</h2><p class="note">${tr("hub_helpers_sub")}</p>
+    ${tileList([["#/intake", tr("tile_intake"), "docc", 3], ["#/poster", tr("tile_poster"), "barsm", 4], ["#/quiz", tr("tile_quiz"), "chat", 1], ["#/diary", tr("ag_title"), "book", 0]])}
+    <h2 class="section-title" style="margin-top:26px">${tr("hub_data")}</h2>
+    ${tileList([["#/rankings", tr("tile_rankings"), "barsm", 3], ["#/story", tr("tile_story"), "docc", 2], ["#/opendata", tr("tile_opendata"), "search", 4], ["#/district", tr("tile_district"), "barsm", 1]])}
+    <p class="note">${tr("tools_sub")}</p></section>`;
 }
 
 function pageFind() {
@@ -558,6 +573,7 @@ async function pageRights(params) {
       <div class="card"><h2>${tr("aid_title")}</h2><p>${tr("aid_intro")}</p>
         <ul class="ticks">${tr("aid_list").split("|").map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
         <p><b>${tr("aid_how")}</b></p>
+        <a class="btn btn-red" href="#/aid" style="margin:8px 0">${tr("aid_check_title")} →</a>
         <ul class="links"><li><a href="tel:15100">${icons.scales}NALSA 15100<span class="go">☎</span></a></li>
         <li><a href="${LINKS.dlsa}" target="_blank" rel="noopener">${icons.globe}nalsa.gov.in<span class="go">↗</span></a></li></ul></div>
       <div class="card"><h2>${tr("limits_title")}</h2><p class="note">${tr("limits_intro")}</p>
@@ -753,6 +769,7 @@ function pageDiary() {
   $("#main").innerHTML = `<section class="wrap page">${backHead(tr("diary_title"), "#/")}
     <p class="lead">${tr("diary_intro")}</p>
     <div class="notice">${tr("diary_private")}</div>
+    ${agendaHTML()}
     ${cases.length ? `<div class="case-list">${cases.map((c) => {
       const s = caseSummary(c); const n = s.next ? daysBetween(todayISO(), s.next) : null;
       return `<a class="case-card ${n != null && n < 0 ? "overdue" : n != null && n <= 7 ? "soon" : ""}" href="#/case?id=${encodeURIComponent(c.id)}">
@@ -837,7 +854,7 @@ async function pageCase(params) {
   wireSelectors($("#editc"));
 
   $("#ics")?.addEventListener("click", () => download(`hearing-${s.next}.ics`, buildICS({
-    uid: `${c.id}-${s.next}`, date: s.next, title: tr("ics_title", { label: c.label }),
+    uid: `${c.id}-${s.next}`, date: s.next, title: tr("ics_title", { label: c.label }), alarms: ["-P1D", "-PT12H"],
     description: [s.purpose, stage ? stageText(stage).t : "", c.cnr && `CNR ${c.cnr}`, c.court, tr("ics_carry")].filter(Boolean).join("\n"),
   }), "text/calendar"));
   $("#loge").addEventListener("submit", (e) => {
@@ -915,7 +932,7 @@ function pageDeadlines(params) {
     <p class="note">${tr("dl_law")}: ${esc(x.law)}</p>
     <div class="form-actions no-print">${left >= 0 ? `<button class="btn btn-red" id="ics" type="button">${tr("diary_add_ics")}</button>` : ""}</div></div>`;
   $("#ics")?.addEventListener("click", () => download(`deadline-${last}.ics`, buildICS({
-    uid: `dl-${k}-${last}`, date: last, title: tr("dl_ics", { t: dl(x).t }), description: `${x.law}\n${tr("not_advice")}`,
+    uid: `dl-${k}-${last}`, date: last, title: tr("dl_ics", { t: dl(x).t }), description: `${x.law}\n${tr("not_advice")}`, alarms: ["-P7D", "-P1D", "-PT12H"],
   }), "text/calendar"));
 }
 
@@ -1233,12 +1250,264 @@ async function sharedWithMeHTML() {
 /* ---------------- big picture tiles (home) ---------------- */
 const TILES = [["/diary", "tile_diary", "book", 0], ["/check", "tile_check", "calsm", 1], ["/estimate", "tile_estimate", "hg", 2],
   ["/decode", "tile_decode", "docc", 3], ["/deadlines", "tile_deadlines", "clockc", 0], ["/rights", "tile_rights", "scalesc", 2],
-  ["/lawyer", "tile_lawyer", "chat", 3], ["/cost", "tile_cost", "rupee", 1], ["/find", "tile_find", "search", 4], ["/district", "tile_district", "barsm", 4]];
+  ["/lawyer", "tile_lawyer", "chat", 3], ["/cost", "tile_cost", "rupee", 1], ["/find", "tile_find", "search", 4], ["/district", "tile_district", "barsm", 4],
+  ["/before", "tile_before", "search", 2], ["/notices", "tile_notices", "docc", 0]];
 function bigTiles() {
   return `<div class="big-tiles">${TILES.map(([p, k, ic, c]) => `<a class="tile c${c}" href="#${p}"><span class="tile-ic">${icons[ic]}</span><span class="tile-t">${tr(k)}</span></a>`).join("")}</div>`;
 }
 /** Wrap a section in a one-tap fold (keeps every feature, shows less at once). */
 const fold = (icon, title, inner, open = false) => inner ? `<details class="fold no-print-fold" ${open ? "open" : ""}><summary><span class="fold-ic">${icons[icon] || ""}</span><span>${title}</span></summary><div class="fold-body">${inner}</div></details>` : "";
+
+
+/* ---------------- layers 2, 3, 5: before court, helpers, data ---------------- */
+async function rankings() { try { return (state.rankings ??= await getJSON("data/rankings.json")); } catch (_) { return null; } }
+const allDistricts = () => state.meta.states.flatMap((s) => s.districts.map((d) => ({ ...d, state: s.name, s: s.code })));
+const distById = (id) => allDistricts().find((d) => d.id === id);
+const printBtn = () => `<button class="btn btn-red no-print" type="button" onclick="window.print()">${tr("sum_print")}</button>`;
+const tileList = (items) => `<div class="big-tiles small">${items.map(([href, label, ic, c]) => `<a class="tile c${c}" href="${href}"><span class="tile-ic">${icons[ic] || icons.docc}</span><span class="tile-t">${esc(label)}</span></a>`).join("")}</div>`;
+
+function pageBefore(params) {
+  const p = PROBLEMS.find((x) => x.key === params.get("p"));
+  if (!p) {
+    $("#main").innerHTML = `<section class="wrap page">${backHead(tr("bc_title"), "#/")}<p class="lead">${tr("bc_intro")}</p>
+      ${tileList(PROBLEMS.map((x, i) => [`#/before?p=${x.key}`, L(x.t), x.icon, i % 5]))}<p class="note">${tr("not_advice")}</p></section>`;
+    return;
+  }
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("bc_title"), "#/before")}
+    <h2 style="font-size:24px">${esc(L(p.t))}</h2>
+    <ol class="steps3d">${p.routes.map((r) => `<li><span>${esc(L(r))}</span></li>`).join("")}</ol>
+    ${p.links.length ? `<ul class="links">${p.links.map(([u, t]) => `<li><a href="${u}" target="_blank" rel="noopener">${icons.globe}${esc(t)}<span class="go">↗</span></a></li>`).join("")}</ul>` : ""}
+    <div class="form-actions"><a class="btn btn-dark" href="#/aid">${tr("tile_aid")}</a><a class="btn btn-ghost" href="#/notices">${tr("tile_notices")}</a><a class="btn btn-ghost" href="#/deadlines">${tr("tile_deadlines")}</a></div>
+    <p class="note">${tr("not_advice")}</p></section>`;
+}
+
+function pageAid() {
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("aid_check_title"), "#/rights")}<p class="lead">${tr("aid_check_intro")}</p>
+    <form id="aidf"><ol class="yn-list">${AID_QUESTIONS.map((q) => `<li><span>${esc(L(q.t))}</span><div class="yn" role="radiogroup">
+      <label><input type="radio" name="${q.key}" value="y"><span>${tr("yes")}</span></label><label><input type="radio" name="${q.key}" value="n"><span>${tr("no")}</span></label></div></li>`).join("")}</ol>
+      <div class="form-actions"><button class="btn btn-red">${tr("aid_check_go")}</button></div></form><div id="out" class="result"></div></section>`;
+  $("#aidf").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const ans = Object.fromEntries(AID_QUESTIONS.map((q) => [q.key, $(`input[name="${q.key}"]:checked`)?.value === "y"]));
+    const r = aidEligible(ans);
+    const grounds = r.grounds.map((k) => L(AID_QUESTIONS.find((q) => q.key === k).t).replace(/\?.*$/, "")).join("; ");
+    $("#out").innerHTML = `<div class="verdict ${r.likely ? "usual" : "somewhat"}">${icons.scalesc}<span>${r.likely ? tr("aid_yes") : tr("aid_maybe")}</span></div>
+      <div class="card" style="margin-top:16px"><h2>${tr("aid_how_title")}</h2><ol class="clean"><li>${tr("aid_how1")}</li><li>${tr("aid_how2")}</li><li>${tr("aid_how3")}</li></ol>
+      <ul class="links"><li><a href="tel:15100">${icons.scales}NALSA 15100<span class="go">☎</span></a></li><li><a href="${AID_APPLY}" target="_blank" rel="noopener">${icons.globe}${tr("aid_online")}<span class="go">↗</span></a></li></ul></div>
+      ${r.likely ? `<div class="card printable" style="margin-top:16px"><h2>${tr("aid_letter")}</h2><p class="note">${tr("aid_letter_hint")}</p>
+        <div class="form-grid"><div class="field"><label for="al-n">${tr("f_name")}</label><input class="text" id="al-n"></div><div class="field"><label for="al-d">${tr("district")}</label><input class="text" id="al-d"></div>
+        <div class="field"><label for="al-a">${tr("f_address")}</label><input class="text" id="al-a"></div></div>
+        <div class="field" style="margin-top:10px"><label for="al-m">${tr("f_matter")}</label><input class="text" id="al-m" maxlength="300"></div>
+        <textarea id="al-t" rows="14" style="margin-top:12px"></textarea><div class="form-actions">${printBtn()}<button class="btn btn-ghost" type="button" id="al-c">${tr("lawyer_copy")}</button></div></div>` : ""}
+      <p class="note">${tr("aid_note")}</p>`;
+    if (!r.likely) return;
+    const fill = () => {
+      const v = (id) => $(id).value.trim() || "[ ............ ]";
+      $("#al-t").value = `To,\nThe Member Secretary,\nDistrict Legal Services Authority, ${v("#al-d")}\n\nDate: ${fmtDate(todayISO())}\n\nSubject: Request for free legal services\n\nSir/Madam,\n\nI, ${v("#al-n")}, residing at ${v("#al-a")}, request free legal services under Section 12 of the Legal Services Authorities Act, 1987.\n\nI am eligible because: ${r.grounds.map((k) => AID_QUESTIONS.find((q) => q.key === k).g).join("; ")}.\n${ans.income ? "I enclose an affidavit stating that my annual income is below the limit fixed by the State Government (Section 13(2)).\n" : ""}\nMy matter: ${v("#al-m")}\n\nYours faithfully,\n\n(Signature / thumb impression)\n${v("#al-n")}\n`;
+    };
+    ["#al-n", "#al-d", "#al-a", "#al-m"].forEach((id) => $(id).addEventListener("input", fill));
+    $("#al-c").addEventListener("click", async () => { try { await navigator.clipboard.writeText($("#al-t").value); $("#al-c").textContent = tr("copied"); } catch (_) {} });
+    fill();
+    void grounds;
+  });
+}
+
+function pageNotices(params) {
+  const k = params.get("k");
+  const n = NOTICES[k];
+  if (!n) {
+    $("#main").innerHTML = `<section class="wrap page">${backHead(tr("nt_title"), "#/")}<p class="lead">${tr("nt_intro")}</p>
+      ${tileList(Object.entries(NOTICES).map(([key, x], i) => [`#/notices?k=${key}`, L(x.t), ["rupee", "docc", "search", "chat"][i], i % 5]))}
+      <p class="note">${tr("nt_rent")}</p></section>`;
+    return;
+  }
+  $("#main").innerHTML = `<section class="wrap page">${backHead(L(n.t), "#/notices")}
+    <div class="notice warnbox">⚠ ${tr("nt_draft")}</div><p>${esc(L(n.note))}</p>
+    <form id="ntf" class="no-print">${n.fields.map(([key, en, hi, type]) => `<div class="field" style="margin-top:10px"><label for="nf-${key}">${esc(state.lang === "hi" ? hi : en)}</label>
+      ${type === "area" ? `<textarea id="nf-${key}" data-k="${key}" rows="2"></textarea>` : `<input class="text" id="nf-${key}" data-k="${key}" ${type === "date" ? 'type="date"' : ""}>`}</div>`).join("")}</form>
+    <h2 style="margin-top:20px">${tr("nt_preview")}</h2><textarea id="nt-t" rows="22" class="mono-area"></textarea>
+    <div class="form-actions">${printBtn()}<button class="btn btn-ghost" type="button" id="nt-c">${tr("lawyer_copy")}</button></div>
+    <p class="note">${tr("not_advice")}</p></section>`;
+  const fmt = (v, el) => (el.type === "date" && v ? fmtDate(v) : v);
+  const fill = () => {
+    const vals = Object.fromEntries([...$("#ntf").querySelectorAll("[data-k]")].map((el) => [el.dataset.k, fmt(el.value, el)]));
+    $("#nt-t").value = buildNotice(k, vals, fmtDate(todayISO()));
+  };
+  $("#ntf").addEventListener("input", fill);
+  $("#nt-c").addEventListener("click", async () => { try { await navigator.clipboard.writeText($("#nt-t").value); $("#nt-c").textContent = tr("copied"); } catch (_) {} });
+  fill();
+}
+
+async function pageJourney(params) {
+  const s = params.get("s") || "", d = params.get("d") || "", c = JOURNEYS[params.get("c")] ? params.get("c") : "";
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("jr_title"), "#/")}<p class="lead">${tr("jr_intro")}</p>
+    <form id="f">${selectorHTML({ s, d, c })}<div class="form-actions"><button class="btn btn-red">${tr("jr_go")}</button></div><ul class="errors" id="errs"></ul></form>
+    <div id="out" class="result"></div></section>`;
+  wireSelectors($("#main"));
+  [...$("#sel-c").options].forEach((o) => { if (o.value && !JOURNEYS[o.value]) o.remove(); });
+  $("#f").addEventListener("submit", (e) => { e.preventDefault(); const v = readSel(); if (!v.s || !v.d || !v.c) { $("#errs").innerHTML = `<li>${tr("err_select")}</li>`; return; } go("/journey", v); });
+  if (!(s && d && c)) return;
+  const { level, stats, district } = await statsFor(s, d, c);
+  $("#out").innerHTML = `<div class="crumb">${esc(catName(c))} · ${esc(district?.name || "")}</div>
+    <ol class="steps3d">${JOURNEYS[c].map((st) => `<li><span>${esc(L(st))}</span></li>`).join("")}</ol>
+    ${stats ? `<div class="card" style="margin-top:16px"><h2>${tr("jr_real")}</h2>${twoStats(stats)}${outcomeBlock(stats)}${levelNote(level, stats.n)}</div>${settleHTML(c, stats)}` : `<p>${tr("suppressed")}</p>`}
+    <div class="form-actions"><a class="btn btn-dark" href="#/deadlines">${tr("tile_deadlines")}</a><a class="btn btn-ghost" href="#/diary">${tr("tile_diary")}</a></div>
+    <p class="note">${tr("jr_note")}</p>`;
+}
+
+async function pageIntake() {
+  const pp = await purposes();
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("in_title"), "#/help")}<p class="lead">${tr("in_intro")}</p>
+    <form id="f"><div class="form-grid"><div class="field"><label for="in-n">${tr("f_name")}</label><input class="text" id="in-n" maxlength="80"></div>
+      <div class="field" style="grid-column: span 2"><label for="in-pr">${tr("in_problem")}</label><input class="text" id="in-pr" maxlength="300"></div></div>
+      <div style="margin-top:12px">${selectorHTML({})}</div>
+      <div class="form-grid" style="margin-top:12px"><div class="field"><label for="i-f">${tr("filing_date")}</label><input type="date" id="i-f"></div>
+        <div class="field"><label for="i-l">${tr("last_hearing")}</label><input type="date" id="i-l"></div><div class="field"><label for="i-n">${tr("next_hearing")}</label><input type="date" id="i-n"></div></div>
+      <div class="field" style="margin-top:12px"><label for="i-pu">${tr("check_stage")}</label><input class="text" id="i-pu" list="i-pl" maxlength="100"><datalist id="i-pl">${(pp?.purposes || []).slice(0, 80).map((r) => `<option value="${esc(r.text)}">`).join("")}</datalist></div>
+      <fieldset class="aid-mini"><legend>${tr("in_aid")}</legend>${AID_QUESTIONS.map((q) => `<label class="consent"><input type="checkbox" data-aid="${q.key}"><span>${esc(L(q.t))}</span></label>`).join("")}</fieldset>
+      <div class="form-actions"><button class="btn btn-red">${tr("in_go")}</button></div><ul class="errors" id="errs"></ul></form><div id="out" class="result"></div></section>`;
+  wireSelectors($("#main"));
+  $("#f").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const v = readSel();
+    if (!v.s || !v.d || !v.c) { $("#errs").innerHTML = `<li>${tr("err_select")}</li>`; return; }
+    $("#errs").innerHTML = "";
+    const { level, stats, district } = await statsFor(v.s, v.d, v.c);
+    const inputs = { filing: $("#i-f").value, last: $("#i-l").value, next: $("#i-n").value || null };
+    const res = stats && inputs.filing && inputs.last ? checkCase(inputs, stats, new Date(todayISO() + "T00:00:00Z")) : null;
+    const ok = res && !res.errors.length;
+    const purpose = $("#i-pu").value.trim(), st = decodePurpose(purpose);
+    const aid = aidEligible(Object.fromEntries([...document.querySelectorAll("[data-aid]")].map((x) => [x.dataset.aid, x.checked])));
+    const g = st && st.group !== "any" ? st.group : null;
+    const qs = g ? (QUESTIONS[g][state.lang] || QUESTIONS[g].en) : QUESTIONS.any[state.lang].slice(0, 4);
+    const vText = ok ? { longer: tr("v_longer"), somewhat: tr("v_somewhat"), usual: tr("v_usual"), insufficient: tr("v_insufficient") }[res.verdict] : "";
+    $("#out").innerHTML = `<div class="card summary"><h2 style="font-size:24px">${tr("in_sheet")}: ${esc($("#in-n").value.trim() || "—")}</h2>
+      <p>${esc(catName(v.c))} · ${esc(district?.name || "")}, ${esc(district?.state_name || "")} · ${fmtDate(todayISO())}</p>
+      ${$("#in-pr").value.trim() ? `<p><b>${tr("in_problem")}:</b> ${esc($("#in-pr").value.trim())}</p>` : ""}
+      ${purpose ? `<p><b>${tr("f_purpose")}:</b> ${esc(purpose)}${st ? ` → ${esc(L(st).t)}: ${esc(L(st).m)}` : ""}</p>` : ""}
+      ${ok ? `<div class="verdict ${res.verdict}">${icons.hourglass}<span>${esc(vText)}</span></div>${timeLeftHTML(stats, res.ageDays)}` : stats ? twoStats(stats) : ""}
+      <h3>${tr("steps_title")}</h3><ul class="plain">${(ok ? nextSteps(res, v.c) : ["ns_lawyer", "ns_aid"]).map((k) => `<li>${esc(tr(k))}</li>`).join("")}</ul>
+      <h3>${tr("aid_title")}</h3><p>${aid.likely ? tr("aid_yes") : tr("aid_maybe")} · NALSA 15100</p>
+      ${(DOCS[v.c] || []).length ? `<h3>${tr("docs_title")}</h3><ul class="plain">${DOCS[v.c].map((x) => `<li>☐ ${esc(L(x))}</li>`).join("")}</ul>` : ""}
+      <h3>${tr("hd_ask")}</h3><ol class="clean">${qs.map((q) => `<li>${esc(q)}</li>`).join("")}</ol>
+      ${stats ? levelNote(level, stats.n) : ""}<p class="note">${tr("not_advice")}</p></div>
+      <div class="form-actions no-print">${printBtn()}<button class="btn btn-dark" type="button" id="in-save">${tr("in_save")}</button></div>`;
+    $("#in-save").addEventListener("click", () => {
+      const c = { id: newId(), label: ($("#in-n").value.trim() || catName(v.c)).slice(0, 120), cnr: "", s: v.s, d: v.d, c: v.c, filed: inputs.filing, court: "", room: "",
+        entries: inputs.last ? [{ id: newId(), date: inputs.last, happened: $("#in-pr").value.trim().slice(0, 2000), next: inputs.next || "", purpose, adjBy: "none" }] : [] };
+      D().cases.push(c); persist(); go("/case", { id: c.id });
+    });
+  });
+}
+
+async function pagePoster(params) {
+  const s = params.get("s") || "", d = params.get("d") || "";
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("ps_title"), "#/help")}<p class="lead no-print">${tr("ps_intro")}</p>
+    <form id="f" class="no-print">${selectorHTML({ withCategory: false, s, d })}<div class="form-actions"><button class="btn btn-red">${tr("ps_go")}</button></div></form><div id="out"></div></section>`;
+  wireSelectors($("#main"));
+  $("#f").addEventListener("submit", (e) => { e.preventDefault(); const v = readSel(); if (v.s && v.d) go("/poster", { s: v.s, d: v.d }); });
+  if (!(s && d)) return;
+  const dd = await districtData(d);
+  const pp = await purposes();
+  const cats = Object.entries(dd.categories || {}).filter(([k, v]) => !v.suppressed && k !== "other").sort((a, b) => b[1].n - a[1].n).slice(0, 4);
+  const byStage = {};
+  for (const r of pp?.purposes || []) { const st = decodePurpose(r.text); if (st) byStage[st.key] = (byStage[st.key] || 0) + r.n; }
+  const topStages = Object.entries(byStage).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k]) => STAGES.find((x) => x.key === k));
+  $("#out").innerHTML = `<div class="poster">
+    <div class="poster-head">${logo("#fff")}<div><div class="p-brand">Case Clock · तारीख घड़ी</div><h1>${esc(dd.name)}, ${esc(dd.state_name)}</h1></div></div>
+    <h2>${tr("ps_times")}</h2><div class="poster-grid">${cats.map(([k, v]) => `<div class="p-cell"><div class="p-k">${esc(catName(k))}</div><div class="p-v">${esc(headlineOrBeyond(v.time_to_decision_days?.p50, v))}</div><div class="p-s">${tr("half_within")}</div></div>`).join("")}</div>
+    <h2>${tr("ps_stages")}</h2><ul class="p-stages">${topStages.map((st) => `<li><b>${esc(L(st).t)}</b>: ${esc(L(st).m.split(/[.।]/)[0])}.</li>`).join("")}</ul>
+    <div class="p-help"><div class="p-big">15100</div><div>${tr("ps_aid")}</div></div>
+    <p class="p-foot">${tr("ps_foot", { url: location.origin + location.pathname, years: yearSpan(state.meta.filing_years) })}</p></div>
+    <div class="form-actions no-print">${printBtn()}</div>`;
+}
+
+function pageQuiz(params) {
+  const seed = Number(params.get("seed")) || 7;
+  const qs = buildQuiz(state.lang, 8, seed);
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("qz_title"), "#/help")}<p class="lead">${tr("qz_intro")}</p>
+    <ol class="quiz">${qs.map((q, i) => `<li class="card"><p><b>${esc(q.q)}</b></p><div class="qopts">${q.options.map((o) => `<button class="btn btn-ghost qopt" type="button" data-q="${i}" data-o="${esc(o)}">${esc(o)}</button>`).join("")}</div><p class="note qfb" id="qf${i}"></p></li>`).join("")}</ol>
+    <div class="card"><h2 id="qscore">${tr("qz_score", { s: 0, n: qs.length })}</h2><a class="btn btn-red" href="#/quiz?seed=${seed + 1}">${tr("qz_new")}</a></div></section>`;
+  let score = 0;
+  const done = new Set();
+  $("#main").querySelectorAll(".qopt").forEach((b) => b.addEventListener("click", () => {
+    const i = Number(b.dataset.q);
+    if (done.has(i)) return;
+    done.add(i);
+    const right = b.dataset.o === qs[i].answer;
+    if (right) score++;
+    $("#main").querySelectorAll(`.qopt[data-q="${i}"]`).forEach((x) => { x.classList.toggle("right", x.dataset.o === qs[i].answer); x.disabled = true; });
+    if (!right) b.classList.add("wrong");
+    $(`#qf${i}`).textContent = (right ? tr("qz_right") : tr("qz_wrong", { a: qs[i].answer })) + (qs[i].law ? ` (${qs[i].law})` : "");
+    $("#qscore").textContent = tr("qz_score", { s: score, n: qs.length });
+  }));
+}
+
+async function pageRankings(params) {
+  const r = await rankings();
+  const c = r?.categories[params.get("c")] ? params.get("c") : "cheque_bounce";
+  const st = params.get("s") || "";
+  const rows = (r?.categories[c] || []).filter((x) => !st || x[0].startsWith(st + "-"));
+  const row = (x, i) => { const dd = distById(x[0]); return `<tr><td>${i}</td><td><a href="#/district?s=${dd?.s}&d=${x[0]}">${esc(dd?.name || x[0])}</a><div class="note">${esc(dd?.state || "")}</div></td>
+    <td class="num">${x[1] == null ? tr("rk_notreached") : esc(formatHeadline(x[1], state.lang))}</td><td class="num">${fmtN(x[2])}</td></tr>`; };
+  const head = `<thead><tr><th>#</th><th>${tr("district")}</th><th class="num">${tr("rk_median")}</th><th class="num">${tr("col_n")}</th></tr></thead>`;
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("rk_title"), "#/help")}<p class="lead">${tr("rk_intro")}</p>
+    <form id="f" class="form-grid"><div class="field"><label for="rk-c">${tr("case_type")}</label><select id="rk-c">${Object.keys(r?.categories || {}).filter((k) => k !== "other").map((k) => `<option value="${k}" ${k === c ? "selected" : ""}>${esc(catName(k))}</option>`).join("")}</select></div>
+      <div class="field"><label for="rk-s">${tr("state")}</label><select id="rk-s"><option value="">${tr("rk_all")}</option>${state.meta.states.map((x) => `<option value="${x.code}" ${x.code === st ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></div></form>
+    ${rows.length ? `<div class="grid-2 even" style="margin-top:16px"><div class="card"><h2>${tr("rk_fast")}</h2><div class="table-scroll"><table class="data">${head}<tbody>${rows.slice(0, 10).map((x, i) => row(x, i + 1)).join("")}</tbody></table></div></div>
+      <div class="card"><h2>${tr("rk_slow")}</h2><div class="table-scroll"><table class="data">${head}<tbody>${rows.slice(-10).reverse().map((x, i) => row(x, rows.length - i)).join("")}</tbody></table></div></div></div>` : `<p>${tr("suppressed")}</p>`}
+    <p class="note">${tr("rk_note", { n: rows.length })} ${dataYearsNote()}</p></section>`;
+  const sub = () => go("/rankings", { c: $("#rk-c").value, s: $("#rk-s").value });
+  $("#rk-c").addEventListener("change", sub); $("#rk-s").addEventListener("change", sub);
+}
+
+async function pageStory(params) {
+  const now = new Date(todayISO() + "T00:00:00Z");
+  const mi = params.get("m") ? Number(params.get("m")) : now.getUTCFullYear() * 12 + now.getUTCMonth();
+  const big = allDistricts().filter((d) => d.n >= 20000).sort((a, b) => a.id.localeCompare(b.id));
+  const pick = big[((mi % big.length) + big.length) % big.length];
+  const [dd, ss, r] = await Promise.all([districtData(pick.id), stateData(pick.s), rankings()]);
+  const month = new Date(Date.UTC(Math.floor(mi / 12), mi % 12, 1)).toLocaleDateString(state.lang === "hi" ? "hi-IN" : "en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
+  const sm = dd.summary, ssm = ss.summary;
+  const cats = Object.entries(dd.categories || {}).filter(([k, v]) => !v.suppressed && k !== "other" && v.time_to_decision_days?.p50 != null);
+  const fastest = cats.sort((a, b) => a[1].time_to_decision_days.p50 - b[1].time_to_decision_days.p50)[0];
+  const slowest = cats[cats.length - 1];
+  const common = Object.entries(dd.categories || {}).filter(([k, v]) => k !== "other" && !v.suppressed).sort((a, b) => b[1].n - a[1].n)[0];
+  const rk = common && r ? rankOf(r.categories[common[0]], dd.id) : null;
+  const med = (x) => headlineOrBeyond(x?.time_to_decision_days?.p50, x);
+  $("#main").innerHTML = `<section class="wrap page prose story">${backHead(tr("st_title"), "#/help")}
+    <div class="kicker">${esc(month)}</div><h1>${esc(tr("st_head", { d: dd.name, s: dd.state_name }))}</h1>
+    <p>${esc(tr("st_p1", { d: dd.name, n: fmtN(sm.n), m: med(sm), sm: med(ssm), s: dd.state_name }))}</p>
+    <p>${esc(tr("st_p2", { p: pct(sm.share_undecided_at_3y), sp: pct(ssm.share_undecided_at_3y) }))}</p>
+    ${common ? `<p>${esc(tr("st_p3", { c: catName(common[0]), n: fmtN(common[1].n), m: med(common[1]) }))}${rk ? " " + esc(tr("st_rank", { r: rk.rank, of: rk.of, c: catName(common[0]) })) : ""}</p>` : ""}
+    ${fastest && slowest && fastest[0] !== slowest[0] ? `<p>${esc(tr("st_p4", { f: catName(fastest[0]), fm: med(fastest[1]), sl: catName(slowest[0]), slm: med(slowest[1]) }))}</p>` : ""}
+    <p>${tr("st_tip")}</p><p class="note">${tr("st_note")} ${dataYearsNote()}</p>
+    <div class="form-actions no-print"><a class="btn btn-dark" href="#/district?s=${dd.state_code}&d=${dd.id}">${tr("tile_district")}</a><a class="btn btn-ghost" href="#/poster?s=${dd.state_code}&d=${dd.id}">${tr("ps_title")}</a>
+      <a class="btn btn-ghost" href="#/story?m=${mi - 1}">← ${tr("st_prev")}</a></div></section>`;
+}
+
+function pageOpenData() {
+  const base = location.origin + location.pathname.replace(/index\.html$/, "") + "data/";
+  const m = state.meta;
+  const rows = [["meta.json", tr("od_meta")], ["national.json", tr("od_national")], ["states/{code}.json", tr("od_state")], ["districts/{id}.json", tr("od_district")],
+    ["rankings.json", tr("od_rankings")], ["purposes.json", tr("od_purposes")], ["category_mapping.json", tr("od_mapping")]];
+  $("#main").innerHTML = `<section class="wrap page prose">${backHead(tr("od_title"), "#/help")}<p class="lead">${tr("od_intro")}</p>
+    <table class="data"><thead><tr><th>URL</th><th>${tr("od_what")}</th></tr></thead><tbody>${rows.map(([f, d]) => `<tr><td><code>${esc(base + f)}</code></td><td>${esc(d)}</td></tr>`).join("")}</tbody></table>
+    <h2>${tr("od_fields")}</h2><p>${tr("od_fields_p")}</p>
+    <h2>${tr("od_example")}</h2><pre class="code">fetch("${esc(base)}districts/13-24.json")
+  .then((r) =&gt; r.json())
+  .then((d) =&gt; console.log(d.categories.cheque_bounce.time_to_decision_days));</pre>
+    <h2>${tr("od_license")}</h2><p>${esc(m.license)} ${esc(m.citation)}.</p><p>${tr("od_rules")}</p></section>`;
+}
+
+/* agenda card for the diary list */
+function agendaHTML() {
+  const g = agenda(D().cases, todayISO(), (c) => caseSummary(c).next);
+  const item = (x) => `<li><a href="#/hearing?id=${encodeURIComponent(x.c.id)}"><b>${fmtDate(x.next)}</b> · ${esc(x.c.label)}${x.clash ? ` <span class="badge">${tr("ag_clash")}</span>` : ""}</a></li>`;
+  const sec = (k, t) => (g[k].length ? `<h3>${t}</h3><ul class="plain agenda">${g[k].map(item).join("")}</ul>` : "");
+  const body = sec("overdue", tr("ag_overdue")) + sec("today", tr("hd_today")) + sec("week", tr("ag_week"));
+  return body ? `<div class="card agenda-card" style="margin-bottom:16px"><h2>${tr("ag_title")}</h2>${body}</div>` : "";
+}
 
 /* ---------------- router ---------------- */
 async function render() {
@@ -1251,7 +1520,8 @@ async function render() {
   renderChrome(path);
   const pages = { "/": pageHome, "/estimate": pageEstimate, "/check": pageCheck, "/district": pageDistrict, "/method": pageMethod, "/about": pageAbout,
     "/help": pageHelp, "/find": pageFind, "/decode": pageDecode, "/lawyer": pageLawyer, "/cost": pageCost, "/rights": pageRights,
-    "/diary": pageDiary, "/case": pageCase, "/deadlines": pageDeadlines, "/account": pageAccount, "/privacy": pagePrivacy, "/hearing": pageHearing, "/summary": pageSummary };
+    "/diary": pageDiary, "/case": pageCase, "/deadlines": pageDeadlines, "/account": pageAccount, "/privacy": pagePrivacy, "/hearing": pageHearing, "/summary": pageSummary, "/before": pageBefore, "/aid": pageAid, "/notices": pageNotices, "/journey": pageJourney,
+    "/intake": pageIntake, "/poster": pagePoster, "/quiz": pageQuiz, "/rankings": pageRankings, "/story": pageStory, "/opendata": pageOpenData };
   const fn = pages[path] || pageHome;
   try { await fn(params); } catch (e) {
     $("#main").innerHTML = `<section class="wrap page"><p>${tr("no_data")}</p><p class="note">${esc(e.message)}</p></section>`;
@@ -1260,6 +1530,7 @@ async function render() {
 }
 
 state.lang = loadLang();
+try { for (const cls of ["big-text", "hc"]) if (localStorage.getItem("cc-" + cls)) document.documentElement.classList.add(cls); } catch (_) { /* storage blocked */ }
 {
   const fab = $("#fab-say");
   if (fab && canSpeak()) {

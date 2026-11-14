@@ -56,6 +56,12 @@ Records per filing year in the DDL files: 2010 4.28M, 2011 5.21M, 2012 6.40M, 20
 - OCR: Tesseract.js 7.0.0 (jsDelivr) with `eng`+`hin` best_int data (~3 MB + ~1.4 MB), cached by the service worker after first use. `parseOrderText` finds day-first numeric and named-month dates, picks the date after "next date / put up / fixed for / अगली तारीख / पेशी" (else the latest date) and a purpose the stage decoder recognises. The person always confirms before saving.
 - Lok Adalat dates: `prep.js LOK_ADALAT` (NALSA letter L/34/2018-NALSA, 04.12.2025). Update yearly.
 
+## Before-court tools, helpers and data (layer2.js)
+- `rankings.json`: `build-rankings` (also run at the end of `build-site`) reads `districts/*.json`; per case type, rows `[district_id, median_days|null, n, share_undecided_at_3y]`, fastest first, unreached medians last.
+- Court story of the month: deterministic pick (month index modulo the list of districts with ≥20,000 cases); text is templated from the district, state and rankings data.
+- Notice drafts are English templates with visible blanks for missing values; each page carries a "draft only, have a lawyer check" banner. No rent/eviction template (state-specific law).
+- Legal aid checker: any yes among the seven Section 12 categories = "likely eligible"; the letter cites s.13(2) when income is the ground.
+
 ## Collection date (why there is no "today" in the historical data)
 DDL does not publish when each record was collected. In the 2010–2011 files, pending cases' last listings cluster around **Jan–Feb 2019**, and a minority were updated in **2020**. A single snapshot date would therefore be wrong for most records. An earlier version used the 99.9th percentile of listing dates (about Sept 2020), and it made 81% of Maharashtra's pending cases look unlisted for over a year. The fix is that nothing in the public statistics depends on a collection date:
 - durations of pending cases end at their own last listing;

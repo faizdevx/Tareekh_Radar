@@ -256,6 +256,7 @@ def build_site_data(extract_paths: list[str | Path], out_dir: str | Path, cfg: d
     _write(out / "meta.json", meta)
     meta["example"] = choose_example(out)
     build_purposes(files, out)
+    build_rankings(out)
     return meta
 
 
@@ -312,4 +313,27 @@ def build_purposes(extract_paths: list[str | Path], out_dir: str | Path, top: in
                "note": "Recorded purpose of the next listing for cases pending at data collection (normalised text).",
                "purposes": [{"text": p, "n": int(n)} for p, n in rows]}
     _write(Path(out_dir) / "purposes.json", payload)
+    return payload
+
+
+def build_rankings(out_dir: str | Path) -> dict:
+    """Per case type, every district with enough cases sorted by median time to decision (fastest first).
+
+    Rows are [district_id, median_days or None, n, share_undecided_at_3y]; None means the median was not reached
+    within follow-up (slower than any reached value), so those rows sort last. Built from the published district JSON.
+    """
+    out = Path(out_dir)
+    cats: dict[str, list] = {}
+    for f in sorted((out / "districts").glob("*.json")):
+        d = json.loads(f.read_text(encoding="utf-8"))
+        for cat, s in (d.get("categories") or {}).items():
+            if s.get("suppressed") or not s.get("time_to_decision_days"):
+                continue
+            p50 = s["time_to_decision_days"].get("p50")
+            cats.setdefault(cat, []).append([d["id"], p50, s.get("n"), s.get("share_undecided_at_3y")])
+    for rows in cats.values():
+        rows.sort(key=lambda r: (r[1] is None, r[1] if r[1] is not None else 0, -(r[2] or 0)))
+    payload = {"note": "Districts with at least min_n cases per type, fastest median first; null median = not reached in follow-up.",
+               "categories": cats}
+    _write(out / "rankings.json", payload)
     return payload

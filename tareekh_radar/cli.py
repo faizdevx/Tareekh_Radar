@@ -199,6 +199,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--name", default=None)
     s.set_defaults(func=cmd_ddl_extract)
 
+    s = sub.add_parser("build-rankings", help="Write site rankings.json from the published district JSON")
+    s.add_argument("--out", default="site/data")
+    s.set_defaults(func=lambda a: (__import__("tareekh_radar.public.build", fromlist=["build_rankings"]).build_rankings(a.out), print("rankings.json written"), 0)[-1])
     s = sub.add_parser("build-purposes", help="Write site purposes.json (common hearing stages) from DDL extracts")
     s.add_argument("--extracts", nargs="+", required=True)
     s.add_argument("--out", default="site/data")

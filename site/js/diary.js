@@ -90,13 +90,13 @@ export function addPeriod(iso, { days = 0, months = 0, years = 0 } = {}) {
 
 const icsText = (s) => String(s).replace(/\\/g, "\\\\").replace(/[;,]/g, (c) => "\\" + c).replace(/\r?\n/g, "\\n");
 /** All-day calendar event with a reminder the day before (RFC 5545), for any phone calendar. */
-export function buildICS({ uid, date: d, title, description = "" }) {
+export function buildICS({ uid, date: d, title, description = "", alarms = ["-PT12H"] }) {
   const ymd = d.replace(/-/g, "");
   const end = addPeriod(d, { days: 1 }).replace(/-/g, "");
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
   return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Case Clock//EN", "BEGIN:VEVENT", `UID:${uid}@caseclock`, `DTSTAMP:${stamp}`,
     `DTSTART;VALUE=DATE:${ymd}`, `DTEND;VALUE=DATE:${end}`, `SUMMARY:${icsText(title)}`, `DESCRIPTION:${icsText(description)}`,
-    "BEGIN:VALARM", "TRIGGER:-PT12H", "ACTION:DISPLAY", `DESCRIPTION:${icsText(title)}`, "END:VALARM",
+    ...alarms.flatMap((tr) => ["BEGIN:VALARM", `TRIGGER:${tr}`, "ACTION:DISPLAY", `DESCRIPTION:${icsText(title)}`, "END:VALARM"]),
     "END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
 }
 
