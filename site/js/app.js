@@ -2,10 +2,12 @@ import { t } from "./i18n.js";
 import { icons, logo, hero, brush, vignetteScales, vignetteHourglass, vignettePen, courthouse } from "./art.js";
 import { pickStats, checkCase, formatDuration, formatHeadline, pct, shareDecidedAt, remainingTime, MONTH_DAYS } from "./logic.js";
 import { buildPrompt, aiLinks, describeLeft } from "./ai.js";
+import { CARRY, DOCS, SETTLE, nextLokAdalat, parseOrderText } from "./prep.js";
+import { canSpeak, canListen, speak, listen } from "./voice.js";
 import { STAGES, decodePurpose, STAGE_GROUPS, GROUP_LABEL, questionsFor, QUESTIONS, parseCNR, DAKSH, CRIMINAL_CATS,
   costEstimate, approxPercentile, nextSteps, DEADLINES } from "./help.js";
 import { loadDiary, saveDiary, sanitizeDiary, newId, sortedEntries, caseSummary, daysBetween, todayISO, buildICS, download,
-  applySteps, ADJ_BY, mergeCases } from "./diary.js";
+  applySteps, ADJ_BY, mergeCases, EXP_CATS, expenseSummary, isEmail } from "./diary.js";
 
 const OUTCOME_COLORS = {
   compromise: "#4b8a3c", lok_adalat: "#8fb35d", allowed: "#2f6f8f", dismissed: "#b8ad9e", withdrawn: "#ddd3c4",
@@ -218,7 +220,7 @@ async function pageEstimate(params) {
       <div class="card"><h2 style="font-size:20px">${tr("est_curve")}</h2>${curveChart(stats.curve_monthly_share_decided)}
       <div class="two-stats"><div class="statbox"><div class="k">${tr("est_first")}</div><div class="v" style="font-size:24px">${esc(ttf ? formatDuration(ttf.p50, state.lang) : "–")}</div></div>
       <div class="statbox"><div class="k">${tr("est_gap")}</div><div class="v" style="font-size:24px">${esc(gap ? formatDuration(gap.p50, state.lang) : "–")}</div></div></div></div></div>
-    <div id="ai-slot"></div>
+    ${settleHTML(c, stats)}<div id="ai-slot" style="margin-top:18px"></div>
     ${levelNote(level, stats.n)}<p class="note">${tr("not_advice")}</p>`;
   mountAskAI($("#ai-slot"), aiFacts({ stats, level, district, c }));
 }
@@ -478,7 +480,7 @@ async function pageDecode(params) {
     <h3>${tr("decode_next")}</h3><p>${esc(tx.n)}</p>
     <h3>${tr("decode_ask")}</h3><ul class="plain">${qs.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
     ${share ? `<p class="note">${esc(share)}</p>` : ""}
-    <a class="btn btn-dark" href="#/lawyer${g ? `?g=${g}` : ""}">${tr("ns_lawyer")} <span class="arrow">→</span></a></div>`;
+    <div class="form-actions">${sayBtn(`${tx.t}. ${tx.m} ${tx.n}`)}<a class="btn btn-dark" href="#/lawyer${g ? `?g=${g}` : ""}">${tr("ns_lawyer")} <span class="arrow">→</span></a></div></div>`;
 }
 
 function pageLawyer(params) {
@@ -700,6 +702,10 @@ function pagePrivacy() {
   <h2>Where and who</h2><p>Accounts and diary data are held by Google Firebase (Authentication and Cloud Firestore) in the Mumbai region (asia-south1). Google acts as our service provider. Data is encrypted in transit. Access rules allow each signed-in user to read and write only their own diary. The project owner can technically open the database through the Firebase console but does not read users' diaries.</p>
   <h2>Please be careful what you write</h2><p>Do not enter other people's names, phone numbers, addresses or identity numbers, or anything you would not want stored online. Case names can be nicknames ("Cheque case 1"). If you want nothing stored online, do not create an account.</p>
   <h2>"Ask an AI" (optional)</h2><p>The "Ask an AI" panel builds a question from numbers on this site and the timing details you entered (case type, district, case age, stage). It never includes your CNR, names or diary notes unless you type them. You can read and edit the text, and nothing happens until you tick the box and press a button. The text then goes from your browser straight to the AI app you choose (for example ChatGPT or Claude) and is handled under that company's own privacy policy. We do not receive it or the answer.</p>
+  <h2>Photos, voice and sharing</h2><ul><li><b>Order-sheet photos</b> are read on your own device; the photo is never uploaded. The reading software is downloaded once from a public code server (jsDelivr).</li>
+  <li><b>Read aloud</b> uses your device's own voice. <b>Speak</b> (dictation) uses your browser's speech service: in Chrome the audio is sent to Google to be turned into text.</li>
+  <li><b>Sharing with family</b>: if you add a relative's email to a case, that email is stored with the case in your account so they can sign in and read it. Remove it any time; they can then no longer see the case.</li>
+  <li><b>WhatsApp reminders</b> open WhatsApp with a message you can edit; we do not send anything.</li></ul>
   <h2>Your choices</h2><ul><li>Use every tool without an account.</li><li>Export a backup file of your diary at any time (My cases → Export backup).</li><li>Delete your account and all your cloud data yourself, in the app (Account → Delete my account and cloud data). A copy kept on your own device is not touched.</li><li>Withdraw consent by deleting your account. To ask for a correction or deletion another way, contact us as above.</li></ul>
   <h2>How long</h2><p>Until you delete it.</p>
   <h2>If something goes wrong</h2><p>If we learn of a breach affecting your data, we will tell affected users and the authorities as the law requires. No online service can promise perfect security.</p>
@@ -728,16 +734,17 @@ function caseFormHTML(c = {}) {
       <div class="field"><label for="c-cnr">${tr("f_cnr")}</label><input class="text" id="c-cnr" maxlength="24" value="${esc(c.cnr || "")}" autocomplete="off" spellcheck="false" autocapitalize="characters"></div>
       <div class="field"><label for="c-filed">${tr("f_filed")}</label><input type="date" id="c-filed" value="${esc(c.filed || "")}"></div></div>
     <div style="margin-top:14px">${selectorHTML({ s: c.s, d: c.d, c: c.c })}</div>
-    <div class="field" style="margin-top:14px"><label for="c-court">${tr("f_court")}</label><input class="text" id="c-court" maxlength="160" value="${esc(c.court || "")}"></div>`;
+    <div class="form-grid" style="margin-top:14px"><div class="field" style="grid-column: span 2"><label for="c-court">${tr("f_court")}</label><input class="text" id="c-court" maxlength="160" value="${esc(c.court || "")}"></div>
+      <div class="field"><label for="c-room">${tr("f_room")}</label><input class="text" id="c-room" maxlength="60" value="${esc(c.room || "")}"></div></div>`;
 }
 /** Read and validate the case form; returns [fields, errors]. */
 function readCaseForm() {
-  const v = { label: $("#c-label").value.trim(), cnr: $("#c-cnr").value.trim(), filed: $("#c-filed").value, court: $("#c-court").value.trim(), ...readSel() };
+  const v = { label: $("#c-label").value.trim(), cnr: $("#c-cnr").value.trim(), filed: $("#c-filed").value, court: $("#c-court").value.trim(), room: $("#c-room").value.trim(), ...readSel() };
   const errs = [];
   if (!v.label) errs.push(tr("err_label"));
   if (v.cnr) { const r = parseCNR(v.cnr); if (r.ok) v.cnr = r.value; else errs.push(tr("err_cnr")); }
   if (v.filed && v.filed > todayISO()) errs.push(tr("err_future"));
-  return [{ label: v.label, cnr: v.cnr.toUpperCase(), filed: v.filed, court: v.court, s: v.s, d: v.d, c: v.c }, errs];
+  return [{ label: v.label, cnr: v.cnr.toUpperCase(), filed: v.filed, court: v.court, room: v.room.slice(0, 60), s: v.s, d: v.d, c: v.c }, errs];
 }
 
 function pageDiary() {
@@ -751,12 +758,14 @@ function pageDiary() {
         <div><h3>${esc(c.label)}</h3><div class="note">${esc(caseMeta(c))}</div></div>
         <div class="due"><b>${esc(dueText(s.next))}</b>${s.purpose ? `<span class="note">${esc(s.purpose)}</span>` : ""}</div><span class="go">→</span></a>`;
     }).join("")}</div>` : `<div class="card empty"><p>${tr("diary_empty")}</p></div>`}
+    <div id="shared-slot"></div>
     <details class="card add-case" ${cases.length ? "" : "open"}><summary>${tr("diary_add")}</summary>
       <form id="addc">${caseFormHTML()}<div class="form-actions"><button class="btn btn-red">${tr("f_save")}</button></div><ul class="errors" id="errs"></ul></form></details>
     <div class="form-actions"><button class="btn btn-ghost" id="exp" type="button" ${cases.length ? "" : "disabled"}>${tr("diary_export")}</button>
       <label class="btn btn-ghost" for="imp">${tr("diary_import")}</label><input type="file" id="imp" accept="application/json,.json" class="sr-only"></div>
     <p class="note">${tr("diary_backup_note")}</p></section>`;
   wireSelectors($("#main"));
+  sharedWithMeHTML().then((h) => { const el = $("#shared-slot"); if (el) el.innerHTML = h; });
   $("#addc").addEventListener("submit", (e) => {
     e.preventDefault();
     const [v, errs] = readCaseForm();
@@ -792,8 +801,10 @@ async function pageCase(params) {
         <div class="next-date">${s.next ? fmtDate(s.next) : "–"}</div><div class="due-line">${esc(dueText(s.next))}</div>
         ${s.purpose ? `<p><b>${esc(s.purpose)}</b>${stage ? ` → ${esc(stageText(stage).t)}: ${esc(stageText(stage).m)}` : ""}</p>` : ""}
         <div class="form-actions no-print">
-          ${s.next ? `<button class="btn btn-red" id="ics" type="button">${tr("diary_add_ics")}</button>` : ""}
-          <a class="btn btn-dark" href="#/lawyer${stage && stage.group !== "any" ? `?g=${stage.group}` : ""}">${tr("ns_lawyer")}</a></div></div>
+          <a class="btn btn-red" href="#/hearing?id=${encodeURIComponent(c.id)}">${tr("hd_open")}</a>
+          ${s.next ? `<button class="btn btn-dark" id="ics" type="button">${tr("diary_add_ics")}</button>
+            <a class="btn btn-ghost" href="${waLink(c, s)}" target="_blank" rel="noopener">${tr("wa_btn")}</a>` : ""}
+          <a class="btn btn-ghost" href="#/lawyer${stage && stage.group !== "any" ? `?g=${stage.group}` : ""}">${tr("ns_lawyer")}</a></div></div>
       <div class="card"><h2>${tr("diary_stats")}</h2>
         <div class="two-stats"><div class="statbox"><div class="k">${tr("diary_hearings")}</div><div class="v">${fmtN(s.hearings)}</div></div>
           <div class="statbox"><div class="k">${tr("diary_age")}</div><div class="v" style="font-size:26px">${esc(ages)}</div></div></div>
@@ -801,6 +812,7 @@ async function pageCase(params) {
         <ul class="adj">${["mine", "other", "court", "unknown"].map((k) => `<li><span>${tr("adj_" + k)}</span><b>${fmtN(s.adj[k])}</b></li>`).join("")}</ul></div>
     </div>
     <div id="stuck"></div>
+    ${scanHTML()}
     <div class="card no-print" style="margin-top:18px"><h2>${tr("diary_log")}</h2>
       <form id="loge"><div class="form-grid">
         <div class="field"><label for="e-date">${tr("f_hdate")}</label><input type="date" id="e-date" value="${todayISO()}" max="${todayISO()}" required></div>
@@ -808,16 +820,17 @@ async function pageCase(params) {
         <div class="field"><label for="e-adj">${tr("f_adj")}</label><select id="e-adj">${ADJ_BY.map((k) => `<option value="${k}">${tr("adj_" + k)}</option>`).join("")}</select></div></div>
         <div class="field" style="margin-top:14px"><label for="e-purpose">${tr("f_purpose")}</label><input class="text" id="e-purpose" maxlength="200" list="e-plist" autocomplete="off">
           <datalist id="e-plist">${(pp?.purposes || []).slice(0, 80).map((r) => `<option value="${esc(r.text)}">`).join("")}</datalist></div>
-        <div class="field" style="margin-top:14px"><label for="e-happened">${tr("f_happened")}</label><textarea id="e-happened" rows="3" maxlength="2000"></textarea></div>
+        <div class="field" style="margin-top:14px"><label for="e-happened">${tr("f_happened")}</label><textarea id="e-happened" rows="3" maxlength="2000"></textarea>${micHTML()}</div>
         <div class="form-actions"><button class="btn btn-red">${tr("f_log_save")}</button></div><ul class="errors" id="errs"></ul></form></div>
     <div class="card" style="margin-top:18px"><h2>${tr("diary_timeline")}</h2>
       ${entries.length ? `<ol class="timeline">${entries.map((e) => `<li><div class="t-date">${fmtDate(e.date)}</div><div class="t-body">
         ${e.purpose ? `<b>${esc(e.purpose)}</b>` : ""}${e.adjBy !== "none" ? ` <span class="badge">${tr("adj_short")}: ${tr("adj_" + e.adjBy)}</span>` : ""}
         ${e.happened ? `<p>${esc(e.happened)}</p>` : ""}${e.next ? `<div class="note">${tr("f_next")}: ${fmtDate(e.next)}</div>` : ""}</div>
         <button class="link-btn no-print" data-del="${esc(e.id)}" type="button">${tr("diary_del_entry")}</button></li>`).join("")}</ol>` : `<p class="note">${tr("diary_no_entries")}</p>`}</div>
+    ${docsHTML(c)}${expensesHTML(c)}<div id="settle-slot"></div>${shareHTML(c)}
     <details class="card no-print" style="margin-top:18px"><summary>${tr("diary_edit")}</summary>
       <form id="editc">${caseFormHTML(c)}<div class="form-actions"><button class="btn btn-red">${tr("f_save")}</button></div><ul class="errors" id="errs2"></ul></form></details>
-    <div class="form-actions no-print"><button class="btn btn-dark" id="print" type="button">${tr("diary_print")}</button>
+    <div class="form-actions no-print"><a class="btn btn-dark" href="#/summary?id=${encodeURIComponent(c.id)}">${tr("sum_btn")}</a>
       <button class="btn btn-ghost danger" id="delc" type="button">${tr("diary_del_case")}</button></div>
     <p class="note">${tr("diary_private")}</p></section>`;
   wireSelectors($("#editc"));
@@ -846,7 +859,9 @@ async function pageCase(params) {
     if (errs.length) { $("#errs2").innerHTML = errs.map((x) => `<li>${x}</li>`).join(""); return; }
     Object.assign(c, v); persist(); render();
   });
-  $("#print").addEventListener("click", () => window.print());
+  wireCaseExtras(c);
+  if (params.get("log")) setTimeout(() => { $("#loge")?.scrollIntoView({ block: "start" }); $("#e-happened")?.focus(); }, 50);
+  if (c.s && c.d && c.c) statsFor(c.s, c.d, c.c).then(({ stats }) => { const el = $("#settle-slot"); if (el && stats) el.innerHTML = settleHTML(c.c, stats); });
   $("#delc").addEventListener("click", () => {
     if (!confirm(tr("diary_del_case_q"))) return;
     diary.cases = diary.cases.filter((x) => x.id !== c.id); persist(); go("/diary");
@@ -918,7 +933,8 @@ function timeLeftHTML(stats, ageDays) {
       <div class="statbox"><div class="k">${tr("tl_nine")}</div><div class="v">${esc(part(r.p90))}</div></div></div>
       ${r.next12 != null ? `<p>${esc(tr("tl_next12", { p: pct(r.next12) }))}</p>` : ""}${r.thin ? `<p class="warn">${tr("tl_thin")}</p>` : ""}`;
   }
-  return `<div class="card timeleft"><h3>${tr("tl_title")}</h3>${r.status === "none" ? "" : `<p class="note">${esc(tr("tl_sub", { age }))}</p>`}${body}<p class="note">${tr("tl_note")}</p></div>`;
+  const said = r.status === "ok" ? `${tr("tl_title")} ${tr("tl_sub", { age })} ${tr("tl_half")} ${r.p50 == null ? tr("not_reached", { d: dur(r.moreThan) }) : dur(r.p50)}. ${tr("tl_nine")} ${r.p90 == null ? tr("not_reached", { d: dur(r.moreThan) }) : dur(r.p90)}.` : "";
+  return `<div class="card timeleft"><h3>${tr("tl_title")}</h3>${said ? `<div class="no-print" style="float:right">${sayBtn(said)}</div>` : ""}${r.status === "none" ? "" : `<p class="note">${esc(tr("tl_sub", { age }))}</p>`}${body}<p class="note">${tr("tl_note")}</p></div>`;
 }
 
 /** Facts for the AI prompt: aggregates and the person's own timing only (never names, CNR or notes). */
@@ -982,6 +998,236 @@ function mountAskAI(el, facts) {
   fill();
 }
 
+
+/* ---------------- layer 1: hearing day, summary, checklists, expenses, sharing, settlement, scan, voice ---------------- */
+const L = (x) => x[state.lang] || x.en;
+const sayBtn = (text) => (canSpeak() ? `<button class="btn btn-ghost say" type="button" data-say="${esc(text)}">🔊 ${tr("voice_read")}</button>` : "");
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-say]");
+  if (!b) return;
+  if (!(await speak(b.dataset.say, state.lang))) alert(tr("voice_no_hi"));
+});
+const stageGroup = (purpose) => { const st = decodePurpose(purpose); return st && st.group !== "any" ? st.group : null; };
+const waLink = (c, s) => `https://wa.me/?text=${encodeURIComponent(tr("wa_msg", {
+  label: c.label, date: fmtDate(s.next), court: [c.court, c.room && `${tr("hd_room")} ${c.room}`].filter(Boolean).join(", ") || "–",
+  stage: s.purpose || "–" }))}`;
+
+async function pageHearing(params) {
+  const c = D().cases.find((x) => x.id === params.get("id"));
+  if (!c) { $("#main").innerHTML = `<section class="wrap page">${backHead(tr("hd_title"), "#/diary")}<p>${tr("diary_notfound")}</p></section>`; return; }
+  const s = caseSummary(c);
+  const st = decodePurpose(s.purpose);
+  const g = stageGroup(s.purpose);
+  const carry = [...CARRY.any, ...(g ? CARRY[g] || [] : [])];
+  const missing = (DOCS[c.c] || []).filter((x) => !c.checks?.[x.id]);
+  const qs = g ? (QUESTIONS[g][state.lang] || QUESTIONS[g].en) : QUESTIONS.any[state.lang].slice(0, 3);
+  const isToday = s.next === todayISO();
+  const spoken = [c.label, isToday ? tr("hd_today") : dueText(s.next), c.court, c.room && `${tr("hd_room")} ${c.room}`,
+    st ? `${L(st).t}. ${L(st).m}` : s.purpose, `${tr("hd_carry")}: ${carry.map(L).join(", ")}`, `${tr("hd_ask")}: ${qs.join(" ")}`].filter(Boolean).join(". ");
+  $("#main").innerHTML = `<section class="wrap page">${backHead(tr("hd_title"), `#/case?id=${encodeURIComponent(c.id)}`)}
+    <div class="card next-card hearing"><div class="kicker">${esc(c.label)}</div>
+      <div class="next-date">${isToday ? tr("hd_today") : s.next ? fmtDate(s.next) : "–"}</div><div class="due-line">${esc(dueText(s.next))}</div>
+      <div class="form-grid" style="margin-top:10px"><div class="field"><label>${tr("hd_court")}</label><div><b>${esc(c.court || caseMeta(c) || "–")}</b></div></div>
+        <div class="field"><label for="hd-room">${tr("hd_room")}</label><input class="text" id="hd-room" maxlength="60" value="${esc(c.room || "")}" placeholder="${esc(tr("hd_room_ph"))}"></div></div>
+      ${s.purpose ? `<p><b>${esc(s.purpose)}</b>${st ? ` → ${esc(L(st).t)}: ${esc(L(st).m)}` : ""}</p>` : ""}
+      <div class="form-actions">${sayBtn(spoken)}${s.next ? `<a class="btn btn-dark" href="${waLink(c, s)}" target="_blank" rel="noopener">${tr("wa_btn")}</a>` : ""}</div></div>
+    <div class="grid-2 even" style="margin-top:18px">
+      <div class="card"><h2>${tr("hd_carry")}</h2><ul class="checklist">${carry.map((x, i) => `<li><input type="checkbox" id="cy${i}"><label for="cy${i}">${esc(L(x))}</label></li>`).join("")}</ul>
+        ${missing.length ? `<h3 style="margin-top:14px">${tr("hd_missing_docs")}</h3><ul class="plain">${missing.map((x) => `<li>${esc(L(x))}</li>`).join("")}</ul>` : ""}</div>
+      <div class="card"><h2>${tr("hd_ask")}</h2><ol class="clean">${qs.map((q) => `<li>${esc(q)}</li>`).join("")}</ol></div></div>
+    <div class="form-actions"><a class="btn btn-red" href="#/case?id=${encodeURIComponent(c.id)}&log=1">${tr("hd_after")} <span class="arrow">→</span></a></div>
+    <p class="note">${tr("docs_hint")}</p></section>`;
+  $("#hd-room").addEventListener("change", (e) => { c.room = e.target.value.trim().slice(0, 60); persist(); });
+}
+
+function docsHTML(c) {
+  const list = DOCS[c.c] || [];
+  if (!list.length) return "";
+  return `<div class="card no-print" style="margin-top:18px"><h2>${tr("docs_title")}</h2><p class="note">${tr("docs_hint")}</p>
+    <ul class="checklist">${list.map((x) => `<li><input type="checkbox" id="dk-${x.id}" data-doc="${x.id}" ${c.checks?.[x.id] ? "checked" : ""}><label for="dk-${x.id}">${esc(L(x))}</label></li>`).join("")}</ul></div>`;
+}
+
+function expensesHTML(c) {
+  const sm = expenseSummary(c);
+  const kind = CRIMINAL_CATS.has(c.c) ? "criminal" : "civil";
+  const bench = DAKSH[kind].spend + DAKSH[kind].lost;
+  const rows = [...(c.expenses || [])].sort((a, b) => b.date.localeCompare(a.date));
+  return `<div class="card" style="margin-top:18px"><h2>${tr("exp_title")}</h2>
+    <form id="expf" class="no-print"><div class="form-grid">
+      <div class="field"><label for="x-date">${tr("exp_date")}</label><input type="date" id="x-date" value="${todayISO()}" max="${todayISO()}" required></div>
+      <div class="field"><label for="x-cat">${tr("exp_cat")}</label><select id="x-cat">${EXP_CATS.map((k) => `<option value="${k}">${tr("expc_" + k)}</option>`).join("")}</select></div>
+      <div class="field"><label for="x-amt">${tr("exp_amount")}</label><input class="text" type="number" id="x-amt" min="0" step="1" required></div></div>
+      <div class="form-grid" style="margin-top:10px"><div class="field"><label for="x-ppl">${tr("exp_people")}</label><input class="text" type="number" id="x-ppl" min="1" max="20" value="1"></div>
+      <div class="field" style="grid-column: span 2"><label for="x-note">${tr("exp_note")}</label><input class="text" id="x-note" maxlength="120"></div></div>
+      <div class="form-actions"><button class="btn btn-red">${tr("exp_add")}</button></div><ul class="errors" id="xerrs"></ul></form>
+    ${sm.total ? `<div class="two-stats"><div class="statbox"><div class="k">${tr("exp_total")}</div><div class="v">₹${fmtN(sm.total)}</div></div>
+      <div class="statbox"><div class="k">${tr("exp_avg")}</div><div class="v">₹${fmtN(Math.round(sm.total / Math.max(1, sm.days)))}</div><div class="note">${tr("exp_days", { n: sm.days })}</div></div></div>
+      <p class="note">${tr("exp_bench", { kind: tr("cost_kind_" + kind), b: fmtN(bench) })} <a href="${DAKSH.source}" target="_blank" rel="noopener">DAKSH</a></p>
+      <ul class="adj">${EXP_CATS.filter((k) => sm.byCat[k]).map((k) => `<li><span>${tr("expc_" + k)}</span><b>₹${fmtN(sm.byCat[k])}</b></li>`).join("")}</ul>
+      <details style="margin-top:8px"><summary>${tr("exp_list")}</summary><ul class="plain">${rows.map((x) => `<li>${fmtDate(x.date)} · ${tr("expc_" + x.cat)} · ₹${fmtN(x.amount)}${x.people > 1 ? ` · ${x.people} 👤` : ""}${x.note ? ` · ${esc(x.note)}` : ""}
+        <button class="link-btn no-print" type="button" data-delx="${esc(x.id)}">${tr("diary_del_entry")}</button></li>`).join("")}</ul></details>`
+      : `<p class="note">${tr("exp_none")}</p>`}</div>`;
+}
+
+function shareHTML(c) {
+  const u = sync.user;
+  if (!u || !u.emailVerified) return `<div class="card no-print" style="margin-top:18px"><h2>${tr("share_title")}</h2><p>${tr("share_signin")}</p><a class="btn btn-dark" href="#/account">${tr("acct_signin")}</a></div>`;
+  return `<div class="card no-print" style="margin-top:18px"><h2>${tr("share_title")}</h2><p>${tr("share_intro")}</p>
+    ${(c.viewers || []).length ? `<ul class="adj">${c.viewers.map((v) => `<li><span>${esc(v)}</span><button class="link-btn" type="button" data-unshare="${esc(v)}">${tr("share_remove")}</button></li>`).join("")}</ul>` : ""}
+    <form id="shf" class="inline-form"><label class="sr-only" for="sh-email">${tr("share_email")}</label><input class="text" type="email" id="sh-email" placeholder="${esc(tr("share_email"))}" autocomplete="off">
+      <button class="btn btn-red">${tr("share_add")}</button></form><ul class="errors" id="sherrs"></ul><p class="note">${tr("share_note")}</p></div>`;
+}
+
+function settleHTML(cat, stats) {
+  const kind = SETTLE[cat] || "some";
+  const o = stats?.outcomes || {};
+  const share = stats?.outcomes ? (o.compromise || 0) + (o.lok_adalat || 0) : null;
+  const next = nextLokAdalat(todayISO());
+  return `<div class="card settle" style="margin-top:18px"><h2>${tr("set_title")}</h2>
+    <p><b>${tr("set_" + kind)}</b></p>
+    ${share != null ? `<p>${esc(tr("set_hist", { p: pct(share, share < 0.01 ? 1 : 0), w: pct(o.withdrawn || 0), n: fmtN(stats.n_outcomes) }))}</p>` : ""}
+    <p>${next ? esc(tr("set_next", { d: fmtDate(next) })) : tr("set_nodate")}</p>
+    <h3>${tr("set_rules_t")}</h3><ul class="plain">${tr("set_rules").split("|").map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    <h3>${tr("hd_ask")}</h3><ul class="plain">${tr("set_ask").split("|").map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    <a href="https://nalsa.gov.in/lok-adalats/" target="_blank" rel="noopener">nalsa.gov.in ↗</a></div>`;
+}
+
+function scanHTML() {
+  return `<details class="card no-print" id="scan" style="margin-top:18px"><summary>📷 ${tr("scan_title")}</summary>
+    <p>${tr("scan_intro")}</p><label class="btn btn-dark" for="scan-f">${tr("scan_pick")}</label>
+    <input type="file" id="scan-f" accept="image/*" capture="environment" class="sr-only"><div id="scan-out"></div></details>`;
+}
+function wireScan() {
+  $("#scan-f")?.addEventListener("change", async (e) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    const out = $("#scan-out");
+    const url = URL.createObjectURL(f);
+    out.innerHTML = `<img class="scan-img" src="${url}" alt=""><div class="meter"><div class="meter-track"><span id="scan-bar" style="width:2%"></span></div><div class="meter-label" id="scan-st">${tr("scan_reading")}</div></div>`;
+    let text = "";
+    try {
+      const { readImage } = await import("./ocr.js");
+      text = await readImage(f, (p) => { const b = $("#scan-bar"); if (b) b.style.width = `${Math.max(2, Math.round(p * 100))}%`; });
+    } catch (_) { out.insertAdjacentHTML("beforeend", `<p class="warn">${tr("scan_err")}</p>`); return; }
+    const r = parseOrderText(text);
+    out.innerHTML = `<img class="scan-img" src="${url}" alt="">
+      <p>${r.nextDate || r.purpose ? tr("scan_found") : tr("scan_none")}</p>
+      <div class="form-grid"><div class="field"><label for="sc-d">${tr("f_hdate")}</label><input type="date" id="sc-d" value="${r.hearingDate}"></div>
+        <div class="field"><label for="sc-n">${tr("f_next")}</label><input type="date" id="sc-n" value="${r.nextDate}"></div>
+        <div class="field"><label for="sc-p">${tr("f_purpose")}</label><input class="text" id="sc-p" value="${esc(r.purpose)}"></div></div>
+      <label class="note" for="sc-t" style="display:block;margin-top:10px">${tr("scan_text")}</label><textarea id="sc-t" rows="6">${esc(text)}</textarea>
+      <div class="form-actions"><button class="btn btn-red" type="button" id="sc-use">${tr("scan_use")}</button></div>`;
+    $("#sc-use").addEventListener("click", () => {
+      if ($("#sc-d").value) $("#e-date").value = $("#sc-d").value;
+      $("#e-next").value = $("#sc-n").value;
+      $("#e-purpose").value = $("#sc-p").value;
+      $("#loge").scrollIntoView({ behavior: "smooth", block: "start" });
+      $("#e-happened").focus();
+    });
+  });
+}
+
+function micHTML() {
+  return canListen() ? `<div class="form-actions" style="margin-top:6px"><button class="btn btn-ghost" type="button" id="mic">🎤 ${tr("mic_btn")}</button><span class="note">${tr("mic_note")}</span></div>` : "";
+}
+function wireMic() {
+  let stop = null;
+  $("#mic")?.addEventListener("click", (e) => {
+    if (stop) { stop(); return; }
+    const btn = e.currentTarget;
+    stop = listen(state.lang, (t) => { const ta = $("#e-happened"); ta.value = (ta.value ? ta.value + " " : "") + t; },
+      () => { stop = null; btn.textContent = `🎤 ${tr("mic_btn")}`; });
+    if (stop) btn.textContent = `⏹ ${tr("mic_stop")}`;
+  });
+}
+
+/** Wires the layer-1 cards on the case page (called by pageCase). */
+function wireCaseExtras(c) {
+  $("#main").querySelectorAll("[data-doc]").forEach((b) => b.addEventListener("change", () => {
+    c.checks = { ...(c.checks || {}) };
+    if (b.checked) c.checks[b.dataset.doc] = true; else delete c.checks[b.dataset.doc];
+    persist();
+  }));
+  $("#expf")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const amt = Number($("#x-amt").value);
+    if (!$("#x-date").value || $("#x-date").value > todayISO() || !(amt >= 0)) { $("#xerrs").innerHTML = `<li>${tr("exp_err")}</li>`; return; }
+    c.expenses = [...(c.expenses || []), { id: newId(), date: $("#x-date").value, cat: $("#x-cat").value, amount: Math.round(amt),
+      people: Math.min(20, Math.max(1, Math.round(Number($("#x-ppl").value) || 1))), note: $("#x-note").value.trim().slice(0, 120) }];
+    persist(); render();
+  });
+  $("#main").querySelectorAll("[data-delx]").forEach((b) => b.addEventListener("click", () => {
+    if (!confirm(tr("diary_del_entry_q"))) return;
+    c.expenses = c.expenses.filter((x) => x.id !== b.dataset.delx); persist(); render();
+  }));
+  $("#shf")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = $("#sh-email").value.trim().toLowerCase();
+    if (!isEmail(v)) { $("#sherrs").innerHTML = `<li>${tr("share_bad")}</li>`; return; }
+    if (v === (sync.user?.email || "").toLowerCase()) { $("#sherrs").innerHTML = `<li>${tr("share_self")}</li>`; return; }
+    const list = c.viewers || [];
+    if (list.length >= 5) { $("#sherrs").innerHTML = `<li>${tr("share_max")}</li>`; return; }
+    if (!list.includes(v)) c.viewers = [...list, v];
+    persist(); render();
+  });
+  $("#main").querySelectorAll("[data-unshare]").forEach((b) => b.addEventListener("click", () => {
+    c.viewers = (c.viewers || []).filter((x) => x !== b.dataset.unshare); persist(); render();
+  }));
+  wireScan();
+  wireMic();
+}
+
+/** Printable one-page case summary (own case, or a case shared with you: ?o=<owner uid>&id=). */
+async function pageSummary(params) {
+  const owner = params.get("o");
+  let c = null;
+  if (owner) {
+    if (!sync.ready) { $("#main").innerHTML = `<section class="wrap page"><p class="note">${tr("loading")}</p></section>`; return; }
+    try { c = sync.cloud && sync.user ? sanitizeDiary({ cases: [await sync.cloud.getShared(owner, params.get("id"))] })?.cases[0] : null; } catch (_) { c = null; }
+  } else c = D().cases.find((x) => x.id === params.get("id"));
+  if (!c) { $("#main").innerHTML = `<section class="wrap page">${backHead(tr("sum_title"), "#/diary")}<p>${owner ? tr("share_noaccess") : tr("diary_notfound")}</p></section>`; return; }
+  const s = caseSummary(c);
+  const st = decodePurpose(s.purpose);
+  const sm = expenseSummary(c);
+  const list = DOCS[c.c] || [];
+  let cmp = "";
+  if (c.s && c.d && c.c) {
+    const { level, stats } = await statsFor(c.s, c.d, c.c);
+    if (stats) {
+      const res = c.filed && s.last ? checkCase({ filing: c.filed, last: s.last, next: s.next || null }, stats, new Date(todayISO() + "T00:00:00Z")) : null;
+      const vText = res && !res.errors.length ? { longer: tr("v_longer"), somewhat: tr("v_somewhat"), usual: tr("v_usual"), insufficient: tr("v_insufficient") }[res.verdict] : "";
+      cmp = `<h2>${tr("sum_compare")}</h2>${vText ? `<p><b>${esc(vText)}</b></p>` : ""}${twoStats(stats)}
+        ${res && !res.errors.length ? timeLeftHTML(stats, res.ageDays) : ""}${levelNote(level, stats.n)}`;
+    }
+  }
+  $("#main").innerHTML = `<section class="wrap page summary">${backHead(tr("sum_title"), owner ? "#/diary" : `#/case?id=${encodeURIComponent(c.id)}`)}
+    ${owner ? `<div class="notice">${tr("share_readonly")}</div>` : ""}
+    <div class="card"><h2 style="font-size:26px">${esc(c.label)}</h2>
+      <p>${esc([c.cnr && `CNR ${c.cnr}`, c.c && catName(c.c), districtName(c), c.court, c.room && `${tr("hd_room")} ${c.room}`].filter(Boolean).join(" · "))}</p>
+      <p>${c.filed ? `${tr("filing_date")}: <b>${fmtDate(c.filed)}</b> · ` : ""}${tr("diary_next")}: <b>${s.next ? fmtDate(s.next) : "–"}</b>${s.purpose ? ` · ${esc(s.purpose)}${st ? ` (${esc(L(st).t)})` : ""}` : ""}</p>
+      <ul class="adj">${["mine", "other", "court", "unknown"].map((k) => `<li><span>${tr("diary_adj")}: ${tr("adj_" + k)}</span><b>${fmtN(s.adj[k])}</b></li>`).join("")}</ul>
+      ${cmp}
+      <h2>${tr("diary_timeline")} (${fmtN(s.hearings)})</h2>
+      <div class="table-scroll"><table class="data"><thead><tr><th>${tr("f_hdate")}</th><th>${tr("f_purpose")}</th><th>${tr("adj_short")}</th><th>${tr("f_next")}</th><th>${tr("sum_notes")}</th></tr></thead><tbody>
+      ${sortedEntries(c).map((e) => `<tr><td>${fmtDate(e.date)}</td><td>${esc(e.purpose)}</td><td>${e.adjBy !== "none" ? tr("adj_" + e.adjBy) : "–"}</td><td>${e.next ? fmtDate(e.next) : "–"}</td><td>${esc(e.happened)}</td></tr>`).join("")}</tbody></table></div>
+      ${sm.total ? `<h2>${tr("exp_title")}</h2><p>${tr("exp_total")}: <b>₹${fmtN(sm.total)}</b> · ${tr("exp_days", { n: sm.days })}</p>` : ""}
+      ${list.length ? `<h2>${tr("docs_title")}</h2><ul class="plain">${list.map((x) => `<li>${c.checks?.[x.id] ? "☑" : "☐"} ${esc(L(x))}</li>`).join("")}</ul>` : ""}
+      <p class="note">${tr("sum_prepared", { d: fmtDate(todayISO()) })}</p></div>
+    <div class="form-actions no-print"><button class="btn btn-red" type="button" id="sum-print">${tr("sum_print")}</button></div></section>`;
+  $("#sum-print").addEventListener("click", () => window.print());
+}
+
+/** Cases other people shared with the signed-in user (read-only links), shown on the diary list. */
+async function sharedWithMeHTML() {
+  const u = sync.user;
+  if (!sync.cloud || !u || !u.emailVerified || !u.email) return "";
+  try {
+    const list = await sync.cloud.sharedWithMe(u.email.toLowerCase());
+    if (!list.length) return "";
+    return `<h2 class="section-title" style="margin-top:22px">${tr("share_mine")}</h2><div class="case-list">${list.map((x) => `<a class="case-card shared" href="#/summary?o=${encodeURIComponent(x.owner)}&id=${encodeURIComponent(x.id)}">
+      <div><h3>${esc(x.label || "")}</h3><div class="note">${tr("share_readonly_short")}</div></div><span class="go">→</span></a>`).join("")}</div>`;
+  } catch (e) { console.warn("shared list failed", e?.code || e); return ""; }
+}
+
 /* ---------------- router ---------------- */
 async function render() {
   const { path, params } = parseHash();
@@ -993,7 +1239,7 @@ async function render() {
   renderChrome(path);
   const pages = { "/": pageHome, "/estimate": pageEstimate, "/check": pageCheck, "/district": pageDistrict, "/method": pageMethod, "/about": pageAbout,
     "/help": pageHelp, "/find": pageFind, "/decode": pageDecode, "/lawyer": pageLawyer, "/cost": pageCost, "/rights": pageRights,
-    "/diary": pageDiary, "/case": pageCase, "/deadlines": pageDeadlines, "/account": pageAccount, "/privacy": pagePrivacy };
+    "/diary": pageDiary, "/case": pageCase, "/deadlines": pageDeadlines, "/account": pageAccount, "/privacy": pagePrivacy, "/hearing": pageHearing, "/summary": pageSummary };
   const fn = pages[path] || pageHome;
   try { await fn(params); } catch (e) {
     $("#main").innerHTML = `<section class="wrap page"><p>${tr("no_data")}</p><p class="note">${esc(e.message)}</p></section>`;
@@ -1002,6 +1248,7 @@ async function render() {
 }
 
 state.lang = loadLang();
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 import("./cloud.js").then((m) => { sync.cloud = m; m.watch(onUser); }).catch((e) => { sync.off = true; console.warn("cloud unavailable", e); });
 $("#lang-toggle").addEventListener("click", () => { state.lang = state.lang === "en" ? "hi" : "en"; saveLang(state.lang); render(); });
 window.addEventListener("hashchange", render);

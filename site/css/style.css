@@ -279,6 +279,16 @@ textarea { width: 100%; background: #fff; border: 1px solid var(--line); border-
 .ask-ai textarea { font-family: ui-monospace, Consolas, monospace; font-size: 13px; line-height: 1.5; }
 .ask-ai .consent { margin-top: 12px; }
 
+/* layer 1 */
+.say { padding: 8px 14px; font-size: 14px; }
+.scan-img { max-width: 100%; max-height: 360px; border: 1px solid var(--line); border-radius: 8px; margin: 10px 0; display: block; }
+.card.hearing .next-date { font-size: clamp(40px, 9vw, 72px); }
+.card.settle { border-top: 6px solid var(--green); }
+.card.settle h3 { margin: 14px 0 4px; font-size: 16px; }
+.case-card.shared { border-left-color: var(--ink-2); }
+.summary h2 { font-size: 20px; margin-top: 18px; }
+@media print { .summary .card { padding: 0; } .summary .timeleft { break-inside: avoid; } }
+
 /* account */
 .acct-chip { border: 1px solid var(--ink); border-radius: 999px; padding: 4px 14px; font-size: 14px; font-weight: 700; color: var(--ink); text-decoration: none; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 .acct-chip.on { background: var(--ink); color: #fff; }

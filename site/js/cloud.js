@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword,
   signInWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail, signOut, deleteUser } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, getDocs, setDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, collection, collectionGroup, query, where, doc, getDoc, getDocs, setDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
@@ -26,7 +26,8 @@ export async function refreshUser() { await auth.currentUser.reload(); return au
 export async function pull(uid) { return (await getDocs(col(uid))).docs.map((d) => ({ id: d.id, ...d.data() })); }
 // Only the fields the security rules allow; the case id is the document id.
 export const putCase = (uid, c) => setDoc(doc(db, "users", uid, "cases", c.id), {
-  label: c.label, cnr: c.cnr, s: c.s, d: c.d, c: c.c, filed: c.filed, court: c.court, entries: c.entries, updated: c.updated });
+  label: c.label, cnr: c.cnr, s: c.s, d: c.d, c: c.c, filed: c.filed, court: c.court, entries: c.entries, updated: c.updated,
+  room: c.room || "", checks: c.checks || {}, expenses: c.expenses || [], viewers: c.viewers || [] });
 export const removeCase = (uid, id) => deleteDoc(doc(db, "users", uid, "cases", id));
 
 // shortcut: one batch (max 500 docs), the app caps a diary at 200 cases; upgrade if that cap grows.
@@ -37,4 +38,14 @@ export async function deleteAccount() {
   snap.docs.forEach((d) => b.delete(d.ref));
   await b.commit();
   await deleteUser(u);
+}
+
+/** Cases whose owner listed this email as a viewer (read-only). Needs the collection-group rule and index. */
+export async function sharedWithMe(email) {
+  const snap = await getDocs(query(collectionGroup(db, "cases"), where("viewers", "array-contains", email)));
+  return snap.docs.map((d) => ({ id: d.id, owner: d.ref.parent.parent.id, label: d.data().label }));
+}
+export async function getShared(owner, id) {
+  const d = await getDoc(doc(db, "users", owner, "cases", id));
+  return d.exists() ? { id: d.id, ...d.data() } : null;
 }

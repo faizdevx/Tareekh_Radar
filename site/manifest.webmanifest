@@ -1,0 +1,16 @@
+{
+  "name": "Case Clock · तारीख घड़ी",
+  "short_name": "Case Clock",
+  "description": "Understand your court case: real timelines, hearing diary, deadlines and help, in Hindi and English.",
+  "start_url": "./#/diary",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5ecdb",
+  "theme_color": "#c4232b",
+  "lang": "en-IN",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

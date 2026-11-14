@@ -50,6 +50,12 @@ Records per filing year in the DDL files: 2010 4.28M, 2011 5.21M, 2012 6.40M, 20
 - The AI prompt is built from: case type, court, statistics level, case age, gaps, stage text (and its decoded meaning), adjournment counts and hearing count (diary), the real quantiles, outcome shares and the verdict. It tells the model to use only these facts, not to invent numbers and not to predict the outcome, and asks for plain-language explanation, five questions for the lawyer, lawful next steps and the limits of the numbers.
 - Sending is always the person's action: edit the preview, tick the consent box, press a button. `?q=` pre-fills ChatGPT and Claude; auto-send is not guaranteed by either, and the answer is not returned to the site. Over 7,000 encoded characters only Copy is offered.
 
+## Layer 1 companion features
+- Case documents now also hold `room`, `checks` (document-checklist ticks), `expenses` (date, category, amount, people, note) and `viewers` (up to 5 lowercase emails). All are sanitised on load/import.
+- Firestore rules must allow those keys and let a verified email listed in `viewers` read the case (path rule plus a collection-group rule for `/{path=**}/cases/{caseId}`), with a collection-group index on `viewers` for the "shared with me" query.
+- OCR: Tesseract.js 7.0.0 (jsDelivr) with `eng`+`hin` best_int data (~3 MB + ~1.4 MB), cached by the service worker after first use. `parseOrderText` finds day-first numeric and named-month dates, picks the date after "next date / put up / fixed for / अगली तारीख / पेशी" (else the latest date) and a purpose the stage decoder recognises. The person always confirms before saving.
+- Lok Adalat dates: `prep.js LOK_ADALAT` (NALSA letter L/34/2018-NALSA, 04.12.2025). Update yearly.
+
 ## Collection date (why there is no "today" in the historical data)
 DDL does not publish when each record was collected. In the 2010–2011 files, pending cases' last listings cluster around **Jan–Feb 2019**, and a minority were updated in **2020**. A single snapshot date would therefore be wrong for most records. An earlier version used the 99.9th percentile of listing dates (about Sept 2020), and it made 81% of Maharashtra's pending cases look unlisted for over a year. The fix is that nothing in the public statistics depends on a collection date:
 - durations of pending cases end at their own last listing;
