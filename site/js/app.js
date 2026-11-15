@@ -180,7 +180,8 @@ async function pageHome() {
   }
   const typeCount = m.totals.categories;
   $("#main").innerHTML = `
-  <section class="wrap home-tiles"><h1 class="tiles-title">${tr("tiles_title")}</h1>${bigTiles()}</section>
+  <section class="wrap home-tiles"><h1 class="tiles-title">${tr("tiles_title")}</h1>${bigTiles()}
+    <a class="app-banner" href="https://github.com/faizdevx/Tareekh_Radar/releases/latest/download/case-clock.apk" rel="noopener"><span class="tile-ic">${icons.book}</span><span><b>${tr("app_get")}</b><br><span class="note">${tr("app_get_sub")}</span></span><span class="go">⬇</span></a></section>
   <section class="hero">
     <div class="hero-art">${hero()}${heroImg ? `<img class="hero-img" src="${esc(heroImg)}" alt="" onerror="this.remove()">` : ""}</div>
     <div class="hero-copy"><div>
