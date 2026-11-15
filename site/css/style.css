@@ -375,7 +375,7 @@ textarea { min-height: 96px; }
 .home-tiles { padding-top: 22px; padding-bottom: 8px; }
 .tiles-title { font-family: var(--display); font-size: clamp(30px, 6vw, 44px); margin: 4px 0 16px; letter-spacing: .01em; }
 html[lang="hi"] .tiles-title { font-family: var(--serif); }
-.big-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 18px; }
+.big-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
 .tile { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; min-height: 150px; padding: 16px 10px;
   background: linear-gradient(180deg, #fffaf0, #f3e4c8); border: 1px solid #e3cfa9; border-radius: 22px; color: var(--ink); text-decoration: none;
   box-shadow: inset 0 2px 0 rgba(255,255,255,.8), 0 7px 0 var(--edge), 0 16px 26px rgba(80,40,10,.18); transition: transform .08s ease, box-shadow .08s ease; }
@@ -436,12 +436,15 @@ details.card > summary { min-height: 52px; display: flex; align-items: center; f
 .case-card:active { transform: translateY(4px); }
 .chip { min-height: 46px; display: inline-flex; align-items: center; box-shadow: 0 3px 0 #dcc6a1; }
 
-@media (max-width: 1100px) { .big-tiles { grid-template-columns: repeat(4, 1fr); } }
+.tile.wide { grid-column: 1 / -1; flex-direction: row; justify-content: flex-start; text-align: left; min-height: 104px; padding: 16px 22px; gap: 18px; }
+.tile.wide .tile-t { font-size: 20px; }
 @media (max-width: 900px) {
   .big-tiles { grid-template-columns: repeat(2, 1fr); gap: 14px; }
   .tile { min-height: 132px; }
   .bottom-nav { grid-template-columns: repeat(4, 1fr); }
-  .fab-say { bottom: 90px; right: 14px; width: 58px; height: 58px; }
+  .fab-say { bottom: 88px; right: 12px; width: 52px; height: 52px; }
+  .fab-say svg { width: 26px; height: 26px; }
+  #main { padding-bottom: 64px; }
   .home-tiles { padding-top: 16px; }
 }
 @media print { .fab-say, .fold > summary::after { display: none !important; } .fold { box-shadow: none; border: 0; } .fold:not([open]) { display: none; } }

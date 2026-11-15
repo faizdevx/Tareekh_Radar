@@ -202,7 +202,7 @@ async function pageHome() {
     <div class="card"><h2>${tr("explore_title")}</h2><p>${tr("explore_sub")}</p>
       <form class="inline-form" id="explore"><label class="sr-only" for="ex-s">${tr("state")}</label>
       <select id="ex-s"><option value="">${tr("select_state")}</option>${m.states.map((x) => `<option value="${x.code}">${esc(x.name)}</option>`).join("")}</select>
-      <button class="icon-btn" aria-label="${tr("nav_districts")}">→</button></form></div>
+      <button class="btn btn-red">${tr("nav_districts")} →</button></form></div>
   </div></section>`;
   $("#explore").addEventListener("submit", (e) => { e.preventDefault(); const s = $("#ex-s").value; if (s) go("/district", { s }); });
 }
@@ -769,7 +769,6 @@ function pageDiary() {
   const cases = [...D().cases].sort((a, b) => (caseSummary(a).next || "9999").localeCompare(caseSummary(b).next || "9999"));
   $("#main").innerHTML = `<section class="wrap page">${backHead(tr("diary_title"), "#/")}
     <p class="lead">${tr("diary_intro")}</p>
-    <div class="notice">${tr("diary_private")}</div>
     ${agendaHTML()}
     ${cases.length ? `<div class="case-list">${cases.map((c) => {
       const s = caseSummary(c); const n = s.next ? daysBetween(todayISO(), s.next) : null;
@@ -780,6 +779,7 @@ function pageDiary() {
     <div id="shared-slot"></div>
     <details class="card add-case" ${cases.length ? "" : "open"}><summary>${tr("diary_add")}</summary>
       <form id="addc">${caseFormHTML()}<div class="form-actions"><button class="btn btn-red">${tr("f_save")}</button></div><ul class="errors" id="errs"></ul></form></details>
+    <div class="notice" style="margin-top:18px">${tr("diary_private")}</div>
     <div class="form-actions"><button class="btn btn-ghost" id="exp" type="button" ${cases.length ? "" : "disabled"}>${tr("diary_export")}</button>
       <label class="btn btn-ghost" for="imp">${tr("diary_import")}</label><input type="file" id="imp" accept="application/json,.json" class="sr-only"></div>
     <p class="note">${tr("diary_backup_note")}</p></section>`;
@@ -1254,7 +1254,7 @@ const TILES = [["/diary", "tile_diary", "book", 0], ["/check", "tile_check", "ca
   ["/lawyer", "tile_lawyer", "chat", 3], ["/cost", "tile_cost", "rupee", 1], ["/find", "tile_find", "search", 4], ["/district", "tile_district", "barsm", 4],
   ["/before", "tile_before", "search", 2], ["/notices", "tile_notices", "docc", 0], ["/map", "tile_map", "barsm", 3]];
 function bigTiles() {
-  return `<div class="big-tiles">${TILES.map(([p, k, ic, c]) => `<a class="tile c${c}" href="#${p}"><span class="tile-ic">${icons[ic]}</span><span class="tile-t">${tr(k)}</span></a>`).join("")}</div>`;
+  return `<div class="big-tiles">${TILES.map(([p, k, ic, c], i) => `<a class="tile c${c}${i === TILES.length - 1 && TILES.length % 2 ? " wide" : ""}" href="#${p}"><span class="tile-ic">${icons[ic]}</span><span class="tile-t">${tr(k)}</span></a>`).join("")}</div>`;
 }
 /** Wrap a section in a one-tap fold (keeps every feature, shows less at once). */
 const fold = (icon, title, inner, open = false) => inner ? `<details class="fold no-print-fold" ${open ? "open" : ""}><summary><span class="fold-ic">${icons[icon] || ""}</span><span>${title}</span></summary><div class="fold-body">${inner}</div></details>` : "";
