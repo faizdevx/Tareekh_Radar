@@ -68,9 +68,10 @@ function renderChrome(path) {
   $("#main-nav").innerHTML = nav.map(([p, k]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${tr(k)}</a>`).join("");
   $("#lang-toggle").innerHTML = state.lang === "en" ? "<b>EN</b> / हिंदी" : "EN / <b>हिंदी</b>";
   const bn = [["/", "nav_home", icons.home], ["/diary", "nav_diary", icons.book], ["/check", "nav_check_short", icons.calsm], ["/help", "nav_help", icons.helpsm]];
-  $("#bottom-nav").innerHTML = bn.map(([p, k, ic]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${ic}<span>${tr(k)}</span></a>`).join("");
+  const bnA = ([p, k, ic]) => `<a href="#${p}" class="${isActive(p) ? "active" : ""}">${ic}<span>${tr(k)}</span></a>`;
+  $("#bottom-nav").innerHTML = bn.slice(0, 2).map(bnA).join("") + `<a href="#/diary?add=1" class="nav-add" aria-label="${esc(tr("diary_add"))}"><span class="nav-add-btn">${icons.plus}</span><span>${tr("nav_add")}</span></a>` + bn.slice(2).map(bnA).join("");
   $("#disclaimer").textContent = tr("disclaimer");
-  for (const [id, cls] of [["#a11y-big", "big-text"], ["#a11y-hc", "hc"]]) $(id)?.addEventListener("click", (e) => {
+  for (const [id, cls] of [["#a11y-big", "big-text"], ["#a11y-hc", "hc"], ["#a11y-dark", "dark"]]) $(id)?.addEventListener("click", (e) => {
     const on = document.documentElement.classList.toggle(cls);
     e.currentTarget.setAttribute("aria-pressed", on);
     try { localStorage.setItem("cc-" + cls, on ? "1" : ""); } catch (_) { /* storage blocked */ }
@@ -83,7 +84,8 @@ function renderChrome(path) {
     <div class="fnote">${tr("footer_note")} ${years ? `(${esc(years)})` : ""}</div>
     <nav><a href="#/about">${tr("nav_about")}</a><a href="#/method">${tr("nav_method")}</a><a href="#/privacy">${tr("privacy_title")}</a><a href="${m ? esc(m.source_url) : "#/method"}" rel="noopener">Data</a></nav>
     <div class="a11y-bar"><button class="a11y" id="a11y-big" type="button" aria-pressed="${document.documentElement.classList.contains("big-text")}">A+ ${tr("a11y_big")}</button>
-      <button class="a11y" id="a11y-hc" type="button" aria-pressed="${document.documentElement.classList.contains("hc")}">◐ ${tr("a11y_hc")}</button></div>
+      <button class="a11y" id="a11y-hc" type="button" aria-pressed="${document.documentElement.classList.contains("hc")}">◐ ${tr("a11y_hc")}</button>
+      <button class="a11y" id="a11y-dark" type="button" aria-pressed="${document.documentElement.classList.contains("dark")}">☾ ${tr("a11y_dark")}</button></div>
     <div class="footer-art">${courthouse()}</div>
     <div class="src">${m ? `Data: ${esc(m.source)}. ${esc(m.license)}` : ""}</div>`;
 }
@@ -180,7 +182,7 @@ async function pageHome() {
   }
   const typeCount = m.totals.categories;
   $("#main").innerHTML = `
-  <section class="wrap home-tiles"><h1 class="tiles-title">${tr("tiles_title")}</h1>${bigTiles()}
+  <section class="wrap home-tiles">${todayCardHTML()}<h1 class="tiles-title">${tr("tiles_title")}</h1>${bigTiles()}
     <a class="app-banner" href="https://github.com/faizdevx/Tareekh_Radar/releases/latest/download/case-clock.apk" rel="noopener"><span class="tile-ic">${icons.book}</span><span><b>${tr("app_get")}</b><br><span class="note">${tr("app_get_sub")}</span></span><span class="go">⬇</span></a></section>
   <section class="hero">
     <div class="hero-art">${hero()}${heroImg ? `<img class="hero-img" src="${esc(heroImg)}" alt="" onerror="this.remove()">` : ""}</div>
@@ -765,17 +767,82 @@ function readCaseForm() {
   return [{ label: v.label, cnr: v.cnr.toUpperCase(), filed: v.filed, court: v.court, room: v.room.slice(0, 60), s: v.s, d: v.d, c: v.c }, errs];
 }
 
-function pageDiary() {
-  const cases = [...D().cases].sort((a, b) => (caseSummary(a).next || "9999").localeCompare(caseSummary(b).next || "9999"));
+/** Shelf colour of a case: overdue (date passed), soon (within 7 days), ok, or nodate. */
+function caseKind(c, t = todayISO()) {
+  const n = caseSummary(c).next;
+  if (!n) return "nodate";
+  const d = daysBetween(t, n);
+  return d < 0 ? "overdue" : d <= 7 ? "soon" : "ok";
+}
+const caseCard = (c) => {
+  const s = caseSummary(c);
+  return `<a class="case-card ${caseKind(c)}" href="#/case?id=${encodeURIComponent(c.id)}">
+        <div><h3>${esc(c.label)}</h3><div class="note">${esc(caseMeta(c))}</div></div>
+        <div class="due"><b>${esc(dueText(s.next))}</b>${s.purpose ? `<span class="note">${esc(s.purpose)}</span>` : ""}</div><span class="go">→</span></a>`;
+};
+const locale = () => (state.lang === "hi" ? "hi-IN" : "en-IN");
+/** Month grid (Monday first) with a dot for each logged hearing and each next date. */
+function calHTML(cases, ym, href) {
+  const [y, m] = ym.split("-").map(Number);
+  const first = new Date(Date.UTC(y, m - 1, 1));
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const lead = (first.getUTCDay() + 6) % 7;
+  const t = todayISO();
+  const ev = {};
+  const add = (d, x) => { if (d && d.startsWith(ym)) (ev[d] ??= []).push(x); };
+  for (const c of cases) {
+    for (const e of sortedEntries(c)) add(e.date, { c, k: "done" });
+    const n = caseSummary(c).next;
+    if (n) add(n, { c, k: n < t ? "overdue" : "next" });
+  }
+  const shift = (k) => new Date(Date.UTC(y, m - 1 + k, 1)).toISOString().slice(0, 7);
+  const wd = [...Array(7)].map((_, i) => new Date(Date.UTC(2024, 0, 1 + i)).toLocaleDateString(locale(), { weekday: "short", timeZone: "UTC" }));
+  const cells = [...Array(lead)].map(() => `<span class="cal-d empty"></span>`);
+  for (let d = 1; d <= days; d++) {
+    const iso = `${ym}-${String(d).padStart(2, "0")}`;
+    const e = ev[iso] || [];
+    cells.push(`<button type="button" class="cal-d${iso === t ? " today" : ""}${e.length ? " has" : ""}" data-d="${iso}" ${e.length ? "" : "disabled"} aria-label="${esc(fmtDate(iso))}${e.length ? ": " + e.length : ""}">
+      <span>${d}</span><span class="dots">${e.slice(0, 3).map((x) => `<i class="${x.k}"></i>`).join("")}</span></button>`);
+  }
+  return `<div class="card cal" data-ev='${esc(JSON.stringify(Object.fromEntries(Object.entries(ev).map(([d, xs]) => [d, xs.map((x) => [x.c.id, x.k])]))))}'>
+    <div class="cal-head"><a class="btn btn-ghost cal-nav" href="${href({ m: shift(-1) })}" aria-label="${tr("cal_prev")}">←</a>
+      <h2>${esc(first.toLocaleDateString(locale(), { month: "long", year: "numeric", timeZone: "UTC" }))}</h2>
+      <a class="btn btn-ghost cal-nav" href="${href({ m: shift(1) })}" aria-label="${tr("cal_next")}">→</a></div>
+    <div class="cal-grid">${wd.map((w) => `<span class="cal-w">${esc(w)}</span>`).join("")}${cells.join("")}</div>
+    <div class="cal-key"><span><i class="next"></i>${tr("cal_next_h")}</span><span><i class="overdue"></i>${tr("f_over")}</span><span><i class="done"></i>${tr("cal_logged")}</span></div>
+    <div id="cal-day" aria-live="polite">${Object.keys(ev).length ? "" : `<p class="note">${tr("cal_none")}</p>`}</div></div>`;
+}
+function wireCal() {
+  const box = $(".cal"); if (!box) return;
+  const ev = JSON.parse(box.dataset.ev);
+  box.addEventListener("click", (e) => {
+    const b = e.target.closest(".cal-d.has"); if (!b) return;
+    box.querySelectorAll(".cal-d.sel").forEach((x) => x.classList.remove("sel")); b.classList.add("sel");
+    const d = b.dataset.d;
+    $("#cal-day").innerHTML = `<h3>${esc(fmtDate(d))}</h3><ul class="plain agenda">${ev[d].map(([id, k]) => {
+      const c = D().cases.find((x) => x.id === id);
+      return c ? `<li><a href="#/case?id=${encodeURIComponent(id)}"><i class="dot ${k}"></i>${esc(c.label)} · ${tr(k === "done" ? "cal_logged" : k === "overdue" ? "f_over" : "cal_next_h")}</a></li>` : "";
+    }).join("")}</ul>`;
+  });
+}
+
+function pageDiary(params) {
+  const all = [...D().cases].sort((a, b) => (caseSummary(a).next || "9999").localeCompare(caseSummary(b).next || "9999"));
+  const f = ["soon", "overdue", "nodate"].includes(params.get("f")) ? params.get("f") : "";
+  const view = params.get("v") === "cal" ? "cal" : "";
+  const ym = /^\d{4}-(0[1-9]|1[0-2])$/.test(params.get("m") || "") ? params.get("m") : todayISO().slice(0, 7);
+  const href = (o) => "#/diary" + ((q) => (q ? "?" + q : ""))(new URLSearchParams(Object.entries({ f, v: view, ...o }).filter(([, v]) => v)).toString());
+  const cases = f ? all.filter((c) => caseKind(c) === f) : all;
+  const cnt = (k) => all.filter((c) => caseKind(c) === k).length;
+  const bar = all.length ? `<div class="shelf-bar no-print"><div class="chips">${[["", "f_all", all.length], ["soon", "f_soon", cnt("soon")], ["overdue", "f_over", cnt("overdue")], ["nodate", "f_none", cnt("nodate")]]
+      .map(([k, l, n]) => `<a class="chip k-${k || "all"} ${f === k ? "on" : ""}" href="${href({ f: k, m: view ? ym : "" })}" ${f === k ? 'aria-current="true"' : ""}>${tr(l)} <span class="count">${n}</span></a>`).join("")}</div>
+      <div class="seg"><a class="${view ? "" : "on"}" href="${href({ v: "" })}">${icons.book}${tr("v_list")}</a><a class="${view ? "on" : ""}" href="${href({ v: "cal" })}">${icons.calsm}${tr("v_cal")}</a></div></div>` : "";
   $("#main").innerHTML = `<section class="wrap page">${backHead(tr("diary_title"), "#/")}
     <p class="lead">${tr("diary_intro")}</p>
     ${agendaHTML()}
-    ${cases.length ? `<div class="case-list">${cases.map((c) => {
-      const s = caseSummary(c); const n = s.next ? daysBetween(todayISO(), s.next) : null;
-      return `<a class="case-card ${n != null && n < 0 ? "overdue" : n != null && n <= 7 ? "soon" : ""}" href="#/case?id=${encodeURIComponent(c.id)}">
-        <div><h3>${esc(c.label)}</h3><div class="note">${esc(caseMeta(c))}</div></div>
-        <div class="due"><b>${esc(dueText(s.next))}</b>${s.purpose ? `<span class="note">${esc(s.purpose)}</span>` : ""}</div><span class="go">→</span></a>`;
-    }).join("")}</div>` : `<div class="card empty"><p>${tr("diary_empty")}</p></div>`}
+    ${bar}
+    ${!all.length ? `<div class="card empty"><p>${tr("diary_empty")}</p></div>` : view ? calHTML(cases, ym, href)
+      : cases.length ? `<div class="case-list shelf">${cases.map(caseCard).join("")}</div>` : `<div class="card empty"><p>${tr("f_empty")}</p></div>`}
     <div id="shared-slot"></div>
     <details class="card add-case" ${cases.length ? "" : "open"}><summary>${tr("diary_add")}</summary>
       <form id="addc">${caseFormHTML()}<div class="form-actions"><button class="btn btn-red">${tr("f_save")}</button></div><ul class="errors" id="errs"></ul></form></details>
@@ -784,6 +851,8 @@ function pageDiary() {
       <label class="btn btn-ghost" for="imp">${tr("diary_import")}</label><input type="file" id="imp" accept="application/json,.json" class="sr-only"></div>
     <p class="note">${tr("diary_backup_note")}</p></section>`;
   wireSelectors($("#main"));
+  wireCal();
+  if (params.get("add")) setTimeout(() => { const d = $(".add-case"); if (!d) return; d.open = true; d.scrollIntoView({ block: "start" }); $("#c-label")?.focus(); }, 0);
   sharedWithMeHTML().then((h) => { const el = $("#shared-slot"); if (el) el.innerHTML = h; });
   $("#addc").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -830,6 +899,7 @@ async function pageCase(params) {
         <div class="k">${tr("diary_adj")}</div>
         <ul class="adj">${["mine", "other", "court", "unknown"].map((k) => `<li><span>${tr("adj_" + k)}</span><b>${fmtN(s.adj[k])}</b></li>`).join("")}</ul></div>
     </div>
+    ${nextHTML(c, s, stage)}
     <div id="stuck"></div>
     ${scanHTML()}
     <div class="card no-print" style="margin-top:18px"><h2>${tr("diary_log")}</h2>
@@ -1106,7 +1176,7 @@ function settleHTML(cat, stats) {
     <p><b>${tr("set_" + kind)}</b></p>
     ${share != null ? `<p>${esc(tr("set_hist", { p: pct(share, share < 0.01 ? 1 : 0), w: pct(o.withdrawn || 0), n: fmtN(stats.n_outcomes) }))}</p>` : ""}
     <p>${next ? esc(tr("set_next", { d: fmtDate(next) })) : tr("set_nodate")}</p>
-    <h3>${tr("set_rules_t")}</h3><ul class="plain">${tr("set_rules").split("|").map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    <h3>${tr("set_rules_t")}</h3><ol class="steps3d opt-cards">${tr("set_rules").split("|").map((x) => `<li><span>${esc(x)}</span></li>`).join("")}</ol>
     <h3>${tr("hd_ask")}</h3><ul class="plain">${tr("set_ask").split("|").map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
     <a href="https://nalsa.gov.in/lok-adalats/" target="_blank" rel="noopener">nalsa.gov.in ↗</a></div>`;
 }
@@ -1276,7 +1346,7 @@ function pageBefore(params) {
   }
   $("#main").innerHTML = `<section class="wrap page">${backHead(tr("bc_title"), "#/before")}
     <h2 style="font-size:24px">${esc(L(p.t))}</h2>
-    <ol class="steps3d">${p.routes.map((r) => `<li><span>${esc(L(r))}</span></li>`).join("")}</ol>
+    <ol class="steps3d opt-cards">${p.routes.map((r) => `<li><span>${esc(L(r))}</span></li>`).join("")}</ol>
     ${p.links.length ? `<ul class="links">${p.links.map(([u, t]) => `<li><a href="${u}" target="_blank" rel="noopener">${icons.globe}${esc(t)}<span class="go">↗</span></a></li>`).join("")}</ul>` : ""}
     <div class="form-actions"><a class="btn btn-dark" href="#/aid">${tr("tile_aid")}</a><a class="btn btn-ghost" href="#/notices">${tr("tile_notices")}</a><a class="btn btn-ghost" href="#/deadlines">${tr("tile_deadlines")}</a></div>
     <p class="note">${tr("not_advice")}</p></section>`;
@@ -1293,7 +1363,7 @@ function pageAid() {
     const r = aidEligible(ans);
     const grounds = r.grounds.map((k) => L(AID_QUESTIONS.find((q) => q.key === k).t).replace(/\?.*$/, "")).join("; ");
     $("#out").innerHTML = `<div class="verdict ${r.likely ? "usual" : "somewhat"}">${icons.scalesc}<span>${r.likely ? tr("aid_yes") : tr("aid_maybe")}</span></div>
-      <div class="card" style="margin-top:16px"><h2>${tr("aid_how_title")}</h2><ol class="clean"><li>${tr("aid_how1")}</li><li>${tr("aid_how2")}</li><li>${tr("aid_how3")}</li></ol>
+      <div class="card" style="margin-top:16px"><h2>${tr("aid_how_title")}</h2><ol class="steps3d opt-cards"><li><span>${tr("aid_how1")}</span></li><li><span>${tr("aid_how2")}</span></li><li><span>${tr("aid_how3")}</span></li></ol>
       <ul class="links"><li><a href="tel:15100">${icons.scales}NALSA 15100<span class="go">☎</span></a></li><li><a href="${AID_APPLY}" target="_blank" rel="noopener">${icons.globe}${tr("aid_online")}<span class="go">↗</span></a></li></ul></div>
       ${r.likely ? `<div class="card printable" style="margin-top:16px"><h2>${tr("aid_letter")}</h2><p class="note">${tr("aid_letter_hint")}</p>
         <div class="form-grid"><div class="field"><label for="al-n">${tr("f_name")}</label><input class="text" id="al-n"></div><div class="field"><label for="al-d">${tr("district")}</label><input class="text" id="al-d"></div>
@@ -1511,6 +1581,71 @@ function agendaHTML() {
 }
 
 
+/* ---------------- today card, next steps, welcome ---------------- */
+function todayCardHTML() {
+  const t = todayISO();
+  const rows = D().cases.map((c) => ({ c, next: caseSummary(c).next })).filter((x) => x.next);
+  if (!rows.length) return "";
+  const x = rows.filter((r) => r.next >= t).sort((a, b) => a.next.localeCompare(b.next))[0] || rows.sort((a, b) => b.next.localeCompare(a.next))[0];
+  const n = daysBetween(t, x.next);
+  const big = n < 0 ? tr("today_passed") : n === 0 ? tr("today_today") : n === 1 ? tr("today_one") : tr("today_left", { n });
+  const c = x.c;
+  if (c.filed && c.c) statsFor(c.s, c.d, c.c).then(({ stats }) => {
+    const p50 = stats?.time_to_decision_days?.p50, el = $("#today-age");
+    if (!el || !p50) return;
+    const age = daysBetween(c.filed, t);
+    el.innerHTML = `<div class="age-bar" role="img" aria-label="${esc(tr("today_age", { a: formatDuration(age, state.lang) }))}"><i style="width:${Math.min(100, Math.round((age / p50) * 100))}%"></i></div>
+      <div class="today-note">${esc(tr("today_age", { a: formatDuration(age, state.lang) }))} · ${esc(tr("today_typical", { t: formatHeadline(p50, state.lang) }))}</div>`;
+  }).catch(() => {});
+  return `<a class="today-card ${n < 0 ? "overdue" : n <= 7 ? "soon" : ""}" href="#/case?id=${encodeURIComponent(c.id)}">
+    <span class="today-ic">${icons.calsm}</span><span class="today-body"><span class="today-k">${tr("today_title")}</span>
+    <span class="today-big">${esc(big)}</span><span class="today-sub"><b>${esc(c.label)}</b> · ${esc(fmtDate(x.next))}</span>
+    <span id="today-age"></span></span><span class="go">→</span></a>`;
+}
+
+/** Swipeable "what to do next" cards for one case, chosen by date and stage. */
+function nextHTML(c, s, stage) {
+  const n = s.next ? daysBetween(todayISO(), s.next) : null;
+  const id = encodeURIComponent(c.id);
+  const g = stage && stage.group !== "any" ? `?g=${stage.group}` : "";
+  const cards = [
+    n != null && n < 0 && ["#loge", "nx_log", "docc", 0, true],
+    n != null && n >= 0 && n <= 7 && [`#/hearing?id=${id}`, "nx_hearing", "calsm", 1],
+    [`#/lawyer${g}`, "nx_lawyer", "chat", 3],
+    s.purpose && [`#/decode?q=${encodeURIComponent(s.purpose)}`, "nx_decode", "docc", 4],
+    ["#/aid", "nx_aid", "scalesc", 2],
+    c.s && c.d && c.c && SETTLE[c.c] !== "no" && ["#settle-slot", "nx_settle", "scalesc", 1, true],
+    ["#/deadlines", "nx_deadline", "clockc", 0],
+  ].filter(Boolean);
+  return `<div class="nx no-print"><h2 class="section-title">${tr("nx_title")}</h2><div class="nx-row">${cards.map(([to, k, ic, col, here]) =>
+    `<${here ? `button type="button" data-open="${to}"` : `a href="${to}"`} class="nx-card tile c${col}"><span class="tile-ic">${icons[ic]}</span><b>${tr(k)}</b><span class="note">${tr(k + "_s")}</span></${here ? "button" : "a"}>`).join("")}</div></div>`;
+}
+
+function welcome() {
+  let seen = "1"; try { seen = localStorage.getItem("cc-welcomed"); } catch (_) { /* storage blocked: skip */ }
+  if (seen) return;
+  const slides = [["book", 0, "wl_1"], ["calsm", 1, "wl_2"], ["scalesc", 2, "wl_3"]];
+  let i = 0;
+  const box = document.createElement("div");
+  box.className = "welcome"; box.setAttribute("role", "dialog"); box.setAttribute("aria-modal", "true"); box.setAttribute("aria-labelledby", "wl-h");
+  const done = () => { try { localStorage.setItem("cc-welcomed", "1"); } catch (_) { /* ignore */ } box.remove(); document.removeEventListener("keydown", esc_); };
+  const esc_ = (e) => { if (e.key === "Escape") done(); };
+  const paint = () => {
+    const [ic, col, k] = slides[i];
+    box.innerHTML = `<div class="wl-card"><div class="wl-top"><button type="button" class="chip wl-lang">${state.lang === "en" ? "हिंदी" : "English"}</button><button type="button" class="chip wl-skip">${tr("wl_skip")}</button></div>
+      <div class="tile c${col} wl-art"><span class="tile-ic">${icons[ic]}</span></div>
+      <h2 id="wl-h">${tr(k + "t")}</h2><p>${tr(k + "s")}</p>
+      <div class="wl-dots" aria-hidden="true">${slides.map((_, j) => `<i class="${j === i ? "on" : ""}"></i>`).join("")}</div>
+      <button type="button" class="btn btn-red wl-next">${i < slides.length - 1 ? tr("wl_next") : tr("wl_start")} →</button></div>`;
+    box.querySelector(".wl-skip").onclick = done;
+    box.querySelector(".wl-next").onclick = () => { if (i < slides.length - 1) { i++; paint(); } else done(); };
+    box.querySelector(".wl-lang").onclick = () => { state.lang = state.lang === "en" ? "hi" : "en"; saveLang(state.lang); render(); paint(); };
+    box.querySelector(".wl-next").focus();
+  };
+  document.addEventListener("keydown", esc_);
+  document.body.append(box); paint();
+}
+
 /* ---------------- India delay map (SVG, no map library) ---------------- */
 async function mapData() { try { return (state.geo ??= await getJSON("data/india_map.json")); } catch (_) { return null; } }
 const MAP_COLORS = ["#fdf0c2", "#f8c873", "#ef8f47", "#d4483f", "#9c1820", "#5a0d12"];
@@ -1604,6 +1739,10 @@ async function render() {
 
 state.lang = loadLang();
 try { for (const cls of ["big-text", "hc"]) if (localStorage.getItem("cc-" + cls)) document.documentElement.classList.add(cls); } catch (_) { /* storage blocked */ }
+{ // dark: the saved choice wins; with none saved, follow the phone setting
+  let dk = null; try { dk = localStorage.getItem("cc-dark"); } catch (_) { /* storage blocked */ }
+  if (dk === "1" || (dk === null && matchMedia("(prefers-color-scheme: dark)").matches)) document.documentElement.classList.add("dark");
+}
 {
   const fab = $("#fab-say");
   if (fab && canSpeak()) {
@@ -1619,6 +1758,12 @@ if ("serviceWorker" in navigator && location.protocol === "https:") navigator.se
 import("./cloud.js").then((m) => { sync.cloud = m; m.watch(onUser); }).catch((e) => { sync.off = true; console.warn("cloud unavailable", e); });
 $("#lang-toggle").addEventListener("click", () => { state.lang = state.lang === "en" ? "hi" : "en"; saveLang(state.lang); render(); });
 window.addEventListener("hashchange", render);
-render();
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-open]"); if (!b) return;
+  const el = $(b.dataset.open); if (!el) return;
+  el.querySelector("details")?.setAttribute("open", "");
+  el.scrollIntoView({ block: "start" });
+});
+render().then(() => { if (parseHash().path === "/") welcome(); });
 
 export { MONTH_DAYS, shareDecidedAt };
